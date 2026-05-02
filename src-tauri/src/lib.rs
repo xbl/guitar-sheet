@@ -1,11 +1,14 @@
 mod commands;
+mod conflict;
 mod db;
 mod error;
+mod github;
 mod hash;
 mod paths;
 mod secrets;
 mod settings;
 mod state;
+mod sync_github;
 
 use std::sync::Mutex;
 
@@ -46,6 +49,8 @@ pub fn run() {
             commands::github_settings::set_github_pat,
             commands::github_settings::clear_github_pat,
             commands::github_settings::github_pat_configured,
+            commands::github_sync::sync_pull_push,
+            commands::github_sync::resolve_sheet_conflict,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
