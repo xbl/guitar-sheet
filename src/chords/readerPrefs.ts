@@ -34,6 +34,13 @@ function clamp(n: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, n))
 }
 
+function parseStoredBool(v: unknown, fallback: boolean): boolean {
+  if (typeof v === "boolean") return v
+  if (v === "true" || v === 1) return true
+  if (v === "false" || v === 0) return false
+  return fallback
+}
+
 export function loadReaderChordPrefs(): ReaderChordPrefs {
   try {
     const raw = localStorage.getItem(KEY)
@@ -47,8 +54,11 @@ export function loadReaderChordPrefs(): ReaderChordPrefs {
         return clamp(Number.isFinite(z) ? z : 1, 0, 2)
       })(),
       chordStyle: j.chordStyle === "text" ? "text" : "diagram",
-      simplifyChords: Boolean(j.simplifyChords),
-      parallelDisplay: Boolean(j.parallelDisplay),
+      simplifyChords: parseStoredBool(j.simplifyChords, DEFAULTS.simplifyChords),
+      parallelDisplay: parseStoredBool(
+        j.parallelDisplay,
+        DEFAULTS.parallelDisplay,
+      ),
     }
   } catch {
     return { ...DEFAULTS }

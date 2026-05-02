@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { computed } from "vue"
 import ChordDiagramSvg from "./ChordDiagramSvg.vue"
-import { parseChordSheet, type ParsedSheetLine } from "../../chords/parseChordSheet"
+import {
+  buildChordDisplayBlocks,
+  parseChordSheet,
+} from "../../chords/parseChordSheet"
 import { simplifyChordSymbol } from "../../chords/simplifyChord"
 import { transposeChordSymbol } from "../../chords/transposeChord"
 
@@ -21,8 +24,10 @@ const props = withDefaults(
   },
 )
 
-const parsedLines = computed<ParsedSheetLine[]>(() =>
-  parseChordSheet(props.source),
+const parsedLines = computed(() => parseChordSheet(props.source))
+
+const displayBlocks = computed(() =>
+  buildChordDisplayBlocks(parsedLines.value, props.parallelDisplay),
 )
 
 function displayChord(raw: string): string {
@@ -37,16 +42,17 @@ function displayChord(raw: string): string {
     class="chord-sheet"
     :class="{ 'chord-sheet--parallel': parallelDisplay }"
   >
-    <template v-for="(line, li) in parsedLines" :key="li">
-      <div v-if="line.kind === 'section'" class="section-bar">
-        {{ line.title }}
+    <template v-for="(block, bi) in displayBlocks" :key="bi">
+      <div v-if="block.kind === 'section'" class="section-bar">
+        {{ block.title }}
       </div>
-      <p v-else-if="line.kind === 'plain' && line.text === ''" class="sheet-gap" />
-      <p v-else-if="line.kind === 'plain'" class="plain-line">{{ line.text }}</p>
-      <div v-else class="lyric-block">
+      <p v-else-if="block.kind === 'gap'" class="sheet-gap" />
+      <p v-else-if="block.kind === 'plain'" class="plain-line">{{ block.text }}</p>
+
+      <div v-else-if="block.kind === 'lyric-line'" class="lyric-block">
         <div class="chord-row">
           <div
-            v-for="(cell, ci) in line.cells"
+            v-for="(cell, ci) in block.cells"
             :key="'c' + ci"
             class="chord-cell"
           >
@@ -63,10 +69,31 @@ function displayChord(raw: string): string {
         </div>
         <div class="lyric-row">
           <span
-            v-for="(cell, ci) in line.cells"
+            v-for="(cell, ci) in block.cells"
             :key="'l' + ci"
             class="lyric-cell"
           >{{ cell.lyric }}</span>
+        </div>
+      </div>
+
+      <div v-else class="lyric-block lyric-block--flow">
+        <div
+          v-for="(cell, ci) in block.cells"
+          :key="'f' + ci"
+          class="lyric-unit"
+        >
+          <div class="chord-cell">
+            <ChordDiagramSvg
+              v-if="cell.chord && chordStyle === 'diagram'"
+              :name="displayChord(cell.chord)"
+            />
+            <span
+              v-else-if="cell.chord && chordStyle === 'text'"
+              class="chord-text"
+            >{{ displayChord(cell.chord) }}</span>
+            <div v-else class="chord-empty" />
+          </div>
+          <span class="lyric-cell">{{ cell.lyric }}</span>
         </div>
       </div>
     </template>
@@ -80,15 +107,8 @@ function displayChord(raw: string): string {
   color: var(--gs-text);
   line-height: 1.55;
 }
-.chord-sheet--parallel {
-  column-count: 2;
-  column-gap: 1.25rem;
-}
-.chord-sheet--parallel .section-bar,
-.chord-sheet--parallel .plain-line,
-.chord-sheet--parallel .lyric-block,
-.chord-sheet--parallel .sheet-gap {
-  break-inside: avoid;
+.chord-sheet--parallel .plain-line {
+  white-space: normal;
 }
 .section-bar {
   margin: 1rem 0 0.6rem;
@@ -116,6 +136,24 @@ function displayChord(raw: string): string {
 }
 .lyric-block {
   margin: 0.35rem 0 0.75rem;
+}
+.lyric-block--flow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.25em 0.35em;
+  width: 100%;
+}
+.lyric-unit {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 0 1 auto;
+  max-width: 100%;
+}
+.lyric-block--flow .chord-cell {
+  margin-bottom: 0.08em;
+  min-height: 4.35em;
 }
 .chord-row,
 .lyric-row {
@@ -145,6 +183,12 @@ function displayChord(raw: string): string {
 .chord-empty {
   min-width: 2.85em;
   min-height: 2.85em;
+}
+.lyric-block--flow .lyric-cell {
+  flex: none;
+  max-width: 100%;
+  word-break: break-word;
+  text-align: center;
 }
 .lyric-cell {
   flex: 0 1 auto;
