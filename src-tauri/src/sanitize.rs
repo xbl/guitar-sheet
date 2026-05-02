@@ -1,7 +1,6 @@
 use crate::error::AppError;
 
 /// Validates a single path segment for folder or display-relative naming (Task 3+).
-#[allow(dead_code)] // wired in folder/create/move commands
 pub fn sanitize_segment(name: &str) -> Result<String, AppError> {
     let t = name.trim();
     if t.is_empty() || t.contains('/') || t.contains('\\') || t == ".." {

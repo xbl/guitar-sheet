@@ -12,7 +12,6 @@ pub fn rel_path_content_file(rel_under_content: &str) -> String {
 }
 
 /// Absolute directory path under `library_dir/content/` for nested folders.
-#[allow(dead_code)] // wired with folder tree commands
 pub fn folder_disk_path(library_dir: &Path, segments: &[String]) -> PathBuf {
     let mut p = content_root(library_dir);
     for s in segments {

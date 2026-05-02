@@ -263,6 +263,70 @@ pub fn delete_sheet(conn: &Connection, id: &str) -> AppResult<()> {
     Ok(())
 }
 
+// --- Folders (schema v2) ---
+
+#[derive(Debug, Clone)]
+pub struct FolderRow {
+    pub id: String,
+    pub parent_id: Option<String>,
+    pub name: String,
+    pub created_at: String,
+}
+
+fn folder_row_from_stmt(row: &rusqlite::Row<'_>) -> rusqlite::Result<FolderRow> {
+    Ok(FolderRow {
+        id: row.get(0)?,
+        parent_id: row.get(1)?,
+        name: row.get(2)?,
+        created_at: row.get(3)?,
+    })
+}
+
+pub fn insert_folder(conn: &Connection, row: &FolderRow) -> AppResult<()> {
+    conn.execute(
+        "INSERT INTO folders (id, parent_id, name, created_at) VALUES (?1, ?2, ?3, ?4)",
+        params![row.id, row.parent_id, row.name, row.created_at],
+    )?;
+    Ok(())
+}
+
+pub fn get_folder(conn: &Connection, id: &str) -> AppResult<Option<FolderRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, parent_id, name, created_at FROM folders WHERE id = ?1",
+    )?;
+    let row = stmt
+        .query_row(params![id], folder_row_from_stmt)
+        .optional()?;
+    Ok(row)
+}
+
+/// All folder rows (for building a tree in memory).
+pub fn list_all_folders(conn: &Connection) -> AppResult<Vec<FolderRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, parent_id, name, created_at FROM folders ORDER BY name",
+    )?;
+    let rows = stmt.query_map([], folder_row_from_stmt)?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r?);
+    }
+    Ok(out)
+}
+
+/// Path segment names from library root down to `folder_id` (inclusive).
+pub fn folder_path_segments(conn: &Connection, folder_id: &str) -> AppResult<Vec<String>> {
+    let mut segments: Vec<String> = Vec::new();
+    let mut current: Option<String> = Some(folder_id.to_string());
+    while let Some(fid) = current {
+        let row = get_folder(conn, &fid)?
+            .ok_or_else(|| AppError::BadInput(format!("folder not found: {fid}")))?;
+        segments.push(row.name);
+        current = row.parent_id;
+    }
+    segments.reverse();
+    Ok(segments)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -325,6 +389,39 @@ mod tests {
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
         assert_eq!(v2, 2);
+    }
+
+    #[test]
+    fn folder_path_segments_walks_ancestors() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = Connection::open_in_memory().unwrap();
+        init_schema(&conn).unwrap();
+        migrate(&conn, dir.path()).unwrap();
+        let root_id = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+        let child_id = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
+        let now = Utc::now().to_rfc3339();
+        insert_folder(
+            &conn,
+            &FolderRow {
+                id: root_id.into(),
+                parent_id: None,
+                name: "Pop".into(),
+                created_at: now.clone(),
+            },
+        )
+        .unwrap();
+        insert_folder(
+            &conn,
+            &FolderRow {
+                id: child_id.into(),
+                parent_id: Some(root_id.into()),
+                name: "Songs".into(),
+                created_at: now,
+            },
+        )
+        .unwrap();
+        let segs = folder_path_segments(&conn, child_id).unwrap();
+        assert_eq!(segs, vec!["Pop".to_string(), "Songs".to_string()]);
     }
 
     #[test]
