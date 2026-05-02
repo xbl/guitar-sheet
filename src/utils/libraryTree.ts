@@ -2,7 +2,14 @@ import type { FolderNode } from "../types/folder"
 import type { SheetMeta } from "../types/sheet"
 
 export type LibraryTreeRow =
-  | { kind: "folder"; id: string; name: string; children: LibraryTreeRow[] }
+  | {
+      kind: "folder"
+      id: string
+      name: string
+      children: LibraryTreeRow[]
+      /** 该文件夹内曲谱总数（含子文件夹） */
+      sheetCount: number
+    }
   | { kind: "sheet"; id: string; title: string; sheetKind: string }
 
 function cmpZh(a: string, b: string) {
@@ -41,7 +48,11 @@ function folderToTree(
     }),
   )
   const children = [...childFolders, ...sheetsHere]
-  return { kind: "folder", id: n.id, name: n.name, children }
+  let sheetCount = (byFolder.get(n.id) ?? []).length
+  for (const c of childFolders) {
+    if (c.kind === "folder") sheetCount += c.sheetCount
+  }
+  return { kind: "folder", id: n.id, name: n.name, children, sheetCount }
 }
 
 /** Folders (nested) plus sheets under each folder; root-level sheets (`folder_id == null`) after top-level folders. */
