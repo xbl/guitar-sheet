@@ -26,6 +26,10 @@ const conflicts = ref<ConflictEntry[]>([])
 const searchQuery = ref("")
 const newFolderName = ref("")
 
+const showNewSheet = ref(false)
+const newSheetTitle = ref("")
+const newSheetBody = ref("")
+
 const createFolderParentId = computed(() => contextFolderId.value)
 
 const importTargetFolderId = computed(() => contextFolderId.value)
@@ -62,6 +66,42 @@ function onSheetDeleted(id: string) {
     selectedSheetId.value = null
   }
   void refreshList()
+}
+
+function openNewSheet() {
+  error.value = null
+  newSheetTitle.value = ""
+  newSheetBody.value = ""
+  showNewSheet.value = true
+}
+
+function closeNewSheet() {
+  showNewSheet.value = false
+}
+
+async function submitNewSheet() {
+  const title = newSheetTitle.value.trim()
+  if (!title) {
+    error.value = "请输入曲谱名称。"
+    return
+  }
+  error.value = null
+  try {
+    const meta = await invoke<SheetMeta>("create_text_sheet", {
+      title,
+      folderId: importTargetFolderId.value,
+      initialContent:
+        newSheetBody.value.trim().length > 0 ? newSheetBody.value : null,
+    })
+    showNewSheet.value = false
+    newSheetTitle.value = ""
+    newSheetBody.value = ""
+    await refresh()
+    selectedSheetId.value = meta.id
+    syncMsg.value = "已新建文本曲谱"
+  } catch (e) {
+    error.value = String(e)
+  }
 }
 
 async function createFolder() {
@@ -168,7 +208,7 @@ onMounted(() => {
         </button>
       </div>
       <p class="hint small">
-        点击文件夹名：在此下新建 / 导入；点击曲谱：右侧打开。
+        点击文件夹名：在此下新建 / 导入 / <strong>新建曲谱</strong>；点击曲谱：右侧打开。
       </p>
       <div class="tree-scroll">
         <template v-if="libraryRows.length">
@@ -207,6 +247,7 @@ onMounted(() => {
               @input="onSearchInput"
             />
           </label>
+          <button type="button" @click="openNewSheet">新建曲谱</button>
           <button type="button" @click="pickImport">导入谱子</button>
           <button type="button" class="primary" @click="syncGitHub">与 GitHub 同步</button>
           <button type="button" @click="refresh">刷新</button>
@@ -238,6 +279,44 @@ onMounted(() => {
         </article>
       </section>
     </main>
+
+    <div
+      v-if="showNewSheet"
+      class="modal-backdrop"
+      role="presentation"
+      @click.self="closeNewSheet"
+    >
+      <div class="modal" role="dialog" aria-labelledby="new-sheet-title">
+        <h3 id="new-sheet-title">新建文本曲谱</h3>
+        <p class="modal-hint">
+          将保存到当前<strong>目标文件夹</strong>（左侧「根目录」或选中的文件夹）。
+        </p>
+        <label class="modal-field">
+          <span>名称</span>
+          <input
+            v-model="newSheetTitle"
+            type="text"
+            maxlength="200"
+            placeholder="必填"
+            autofocus
+            @keydown.enter="submitNewSheet"
+          />
+        </label>
+        <label class="modal-field">
+          <span>初始正文（可选）</span>
+          <textarea
+            v-model="newSheetBody"
+            rows="5"
+            maxlength="500000"
+            placeholder="可留空，稍后在阅读页编辑"
+          />
+        </label>
+        <div class="modal-actions">
+          <button type="button" @click="closeNewSheet">取消</button>
+          <button type="button" class="primary" @click="submitNewSheet">创建</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -428,5 +507,63 @@ button {
 button.primary {
   border-color: #2563eb;
   background: #eff6ff;
+}
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+.modal {
+  width: min(26rem, 100%);
+  max-height: min(90vh, 32rem);
+  overflow: auto;
+  background: #fff;
+  border-radius: 10px;
+  padding: 1.15rem 1.25rem;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
+}
+.modal h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1.05rem;
+}
+.modal-hint {
+  margin: 0 0 1rem;
+  font-size: 0.82rem;
+  color: #555;
+  line-height: 1.45;
+}
+.modal-field {
+  display: block;
+  margin-bottom: 0.85rem;
+}
+.modal-field span {
+  display: block;
+  font-size: 0.85rem;
+  margin-bottom: 0.3rem;
+  color: #444;
+}
+.modal-field input,
+.modal-field textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  font: inherit;
+}
+.modal-field textarea {
+  resize: vertical;
+  min-height: 6rem;
+}
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
 }
 </style>

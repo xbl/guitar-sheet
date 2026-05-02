@@ -37,8 +37,99 @@ const titleDraft = ref("")
 const fontPx = ref(16)
 const lineHeight = ref(1.6)
 const imgSrc = ref("")
+const textAreaRef = ref<HTMLTextAreaElement | null>(null)
 /** Revoked when switching sheets or unmount; separate from imgSrc string when using blob URLs. */
 let imageBlobUrl: string | null = null
+
+type TextPreviewSeg =
+  | { type: "text"; content: string }
+  | { type: "img"; file: string }
+
+function parseImageLine(line: string): string | null {
+  const token = line.match(/^\s*\{\{IMG:([^}]+)\}\}\s*$/)
+  if (token) return token[1]!.trim()
+  const md = line.match(/^\s*!\[[^\]]*\]\(([^)]+)\)\s*$/)
+  if (md) return md[1]!.trim()
+  return null
+}
+
+function buildTextPreviewSegments(body: string): TextPreviewSeg[] {
+  const lines = body.split("\n")
+  const out: TextPreviewSeg[] = []
+  const textBuf: string[] = []
+  const flush = () => {
+    if (textBuf.length) {
+      out.push({ type: "text", content: textBuf.join("\n") })
+      textBuf.length = 0
+    }
+  }
+  for (const line of lines) {
+    const file = parseImageLine(line)
+    if (file) {
+      flush()
+      out.push({ type: "img", file })
+    } else {
+      textBuf.push(line)
+    }
+  }
+  flush()
+  return out
+}
+
+function siblingFilePath(tabAbs: string, file: string): string {
+  const cleaned = file.replace(/^[/\\]+/, "")
+  const name = cleaned.split(/[/\\]/).pop() || cleaned
+  const i = Math.max(tabAbs.lastIndexOf("/"), tabAbs.lastIndexOf("\\"))
+  const dir = i >= 0 ? tabAbs.slice(0, i) : tabAbs
+  const sep = tabAbs.includes("\\") ? "\\" : "/"
+  return `${dir}${sep}${name}`
+}
+
+const textPreviewSegments = computed(() =>
+  meta.value?.kind === "text" ? buildTextPreviewSegments(textBody.value) : [],
+)
+
+const previewUrls = ref<Record<string, string>>({})
+let previewGen = 0
+
+function revokePreviewBlobUrls() {
+  for (const url of Object.values(previewUrls.value) as string[]) {
+    if (url.startsWith("blob:")) URL.revokeObjectURL(url)
+  }
+  previewUrls.value = {}
+}
+
+async function refreshTextPreviewImages() {
+  const gen = ++previewGen
+  revokePreviewBlobUrls()
+  if (editingText.value || meta.value?.kind !== "text" || !meta.value.absolute_path) return
+
+  const tabPath = meta.value.absolute_path
+  const files = [
+    ...new Set(
+      buildTextPreviewSegments(textBody.value)
+        .filter((s): s is { type: "img"; file: string } => s.type === "img")
+        .map((s) => s.file),
+    ),
+  ]
+  const next: Record<string, string> = {}
+  for (const file of files) {
+    if (gen !== previewGen) return
+    try {
+      const abs = siblingFilePath(tabPath, file)
+      const bytes = await readFile(abs)
+      const blob = new Blob([bytes], { type: guessImageMime(abs) })
+      next[file] = URL.createObjectURL(blob)
+    } catch {
+      /* missing or unreadable */
+    }
+  }
+  if (gen !== previewGen) {
+    for (const u of Object.values(next)) URL.revokeObjectURL(u)
+    return
+  }
+  previewUrls.value = next
+}
 
 function revokeImageBlobUrl() {
   if (imageBlobUrl) {
@@ -94,6 +185,7 @@ async function load() {
   textDraft.value = ""
   editingText.value = false
   titleEditing.value = false
+  revokePreviewBlobUrls()
   revokeImageBlobUrl()
   imgSrc.value = ""
   pdfDoc = null
@@ -241,6 +333,72 @@ function nextPdf() {
   }
 }
 
+function mimeToImageExtension(mime: string): string {
+  if (mime === "image/png") return "png"
+  if (mime === "image/jpeg") return "jpg"
+  if (mime === "image/webp") return "webp"
+  if (mime === "image/gif") return "gif"
+  return "png"
+}
+
+function uint8ToBase64(bytes: Uint8Array): string {
+  let binary = ""
+  const chunk = 0x8000
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk))
+  }
+  return btoa(binary)
+}
+
+function insertAtCursor(insert: string) {
+  const ta = textAreaRef.value
+  const text = textDraft.value
+  if (!ta) {
+    textDraft.value = text + insert
+    return
+  }
+  const start = ta.selectionStart
+  const end = ta.selectionEnd
+  const before = text.slice(0, start)
+  const after = text.slice(end)
+  const prefix = before.length > 0 && !before.endsWith("\n") ? "\n" : ""
+  const block = prefix + insert + "\n"
+  textDraft.value = before + block + after
+  void nextTick(() => {
+    const pos = start + block.length
+    ta.focus()
+    ta.setSelectionRange(pos, pos)
+  })
+}
+
+async function onTextPaste(e: ClipboardEvent) {
+  if (!editingText.value || !props.sheetId || meta.value?.kind !== "text") return
+  const cd = e.clipboardData
+  if (!cd) return
+
+  for (const item of Array.from(cd.items)) {
+    if (!item.type.startsWith("image/")) continue
+    const file = item.getAsFile()
+    if (!file) continue
+    e.preventDefault()
+    error.value = null
+    try {
+      const buf = new Uint8Array(await file.arrayBuffer())
+      const ext = mimeToImageExtension(file.type || item.type)
+      const b64 = uint8ToBase64(buf)
+      const snippet = await invoke<string>("save_sheet_clipboard_image", {
+        sheetId: props.sheetId,
+        imageBase64: b64,
+        extension: ext,
+      })
+      insertAtCursor(snippet)
+    } catch (e) {
+      error.value = String(e)
+    }
+    return
+  }
+}
+
 watch(
   () => props.sheetId,
   () => {
@@ -248,7 +406,16 @@ watch(
   },
 )
 
+watch(
+  () =>
+    [textBody.value, meta.value?.absolute_path, meta.value?.kind, editingText.value] as const,
+  () => {
+    void refreshTextPreviewImages()
+  },
+)
+
 onUnmounted(() => {
+  revokePreviewBlobUrls()
   revokeImageBlobUrl()
 })
 </script>
@@ -317,17 +484,35 @@ onUnmounted(() => {
             <label>字号 <input v-model.number="fontPx" type="range" min="12" max="32" /></label>
             <label>行距 <input v-model.number="lineHeight" type="range" min="1.2" max="2.4" step="0.05" /></label>
           </div>
+          <p v-if="editingText" class="paste-hint">
+            提示：编辑时 Ctrl+V 粘贴剪贴板图片会保存到曲谱同目录并在正文插入一行标记；退出编辑后正文里会显示图片预览。
+          </p>
           <textarea
             v-if="editingText"
+            ref="textAreaRef"
             v-model="textDraft"
             class="tab edit"
             :style="{ fontSize: fontPx + 'px', lineHeight: String(lineHeight) }"
+            @paste="onTextPaste"
           />
-          <pre
+          <div
             v-else
-            class="tab"
+            class="tab text-preview"
             :style="{ fontSize: fontPx + 'px', lineHeight: String(lineHeight) }"
-          >{{ textBody }}</pre>
+          >
+            <template v-for="(seg, i) in textPreviewSegments" :key="i">
+              <pre v-if="seg.type === 'text'" class="text-chunk">{{ seg.content }}</pre>
+              <figure v-else class="inline-img-wrap">
+                <img
+                  v-if="previewUrls[seg.file]"
+                  :src="previewUrls[seg.file]"
+                  :alt="seg.file"
+                  class="inline-img"
+                />
+                <p v-else class="img-missing">（无法加载图片：{{ seg.file }}）</p>
+              </figure>
+            </template>
+          </div>
         </section>
 
         <section v-else-if="meta.kind === 'image'" class="img-wrap">
@@ -464,6 +649,12 @@ onUnmounted(() => {
   margin-bottom: 0.75rem;
   font-size: 0.9rem;
 }
+.paste-hint {
+  margin: 0 0 0.5rem;
+  font-size: 0.8rem;
+  color: #666;
+  line-height: 1.4;
+}
 .tab {
   margin: 0;
   width: 100%;
@@ -481,6 +672,37 @@ onUnmounted(() => {
 .tab.edit {
   resize: vertical;
   line-height: inherit;
+}
+.text-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.text-chunk {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+}
+.inline-img-wrap {
+  margin: 0;
+  padding: 0;
+  display: flex;
+  justify-content: flex-start;
+}
+.inline-img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  border-radius: 6px;
+  border: 1px solid #e5e5e5;
+}
+.img-missing {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #888;
 }
 .img-wrap {
   flex: 1 1 auto;

@@ -161,6 +161,87 @@ pub fn import_sheet(
     Ok(to_meta(paths, row, vec![]))
 }
 
+/// Create a new empty (or initial-content) text tab on disk and index.
+#[tauri::command]
+pub fn create_text_sheet(
+    state: State<'_, AppState>,
+    title: String,
+    folder_id: Option<String>,
+    initial_content: Option<String>,
+) -> Result<SheetMeta, String> {
+    let display_title = title.trim().to_string();
+    if display_title.is_empty() {
+        return Err(AppError::BadInput("曲谱名称不能为空".into()).to_string());
+    }
+
+    let paths = &state.paths;
+    let segments: Vec<String> = {
+        let conn = state
+            .conn
+            .lock()
+            .map_err(|_| "database lock poisoned".to_string())?;
+        match &folder_id {
+            Some(fid) => {
+                if db::get_folder(&conn, fid)
+                    .map_err(|e| e.to_string())?
+                    .is_none()
+                {
+                    return Err(format!("folder not found: {fid}"));
+                }
+                db::folder_path_segments(&conn, fid).map_err(|e| e.to_string())?
+            }
+            None => Vec::new(),
+        }
+    };
+
+    let id = Uuid::new_v4().to_string();
+    let id_nodash: String = id.chars().filter(|c| *c != '-').collect();
+    let id_short: String = id_nodash.chars().take(12).collect();
+
+    let stem_safe = crate::sanitize::storage_stem(&display_title);
+    let storage_filename = format!("{stem_safe}_{id_short}.txt");
+
+    let dest_dir = library_paths::folder_disk_path(&paths.library_dir, &segments);
+    std::fs::create_dir_all(&dest_dir).map_err(|e| e.to_string())?;
+    let dest = dest_dir.join(&storage_filename);
+
+    let body = initial_content.unwrap_or_default();
+    std::fs::write(&dest, body.as_bytes()).map_err(|e| e.to_string())?;
+
+    let rel_under = if segments.is_empty() {
+        storage_filename.clone()
+    } else {
+        format!("{}/{}", segments.join("/"), storage_filename)
+    };
+    let local_rel_path = library_paths::rel_path_content_file(&rel_under);
+
+    let hash = hash::sha256_file(&dest).map_err(|e| e.to_string())?;
+    let modified = chrono::Utc::now().to_rfc3339();
+
+    let remote_path = remote_path_for_local_rel(paths, &local_rel_path)?;
+
+    let row = SheetRow {
+        id: id.clone(),
+        display_title,
+        kind: "text".to_string(),
+        local_rel_path: local_rel_path.clone(),
+        local_content_hash: hash,
+        remote_path,
+        remote_blob_sha: None,
+        last_local_modified_at: modified,
+        last_synced_at: None,
+        folder_id,
+        artist: None,
+    };
+
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
+    db::insert_sheet(&conn, &row).map_err(|e| e.to_string())?;
+    Ok(to_meta(paths, row, vec![]))
+}
+
 #[tauri::command]
 pub fn list_sheets(
     state: State<'_, AppState>,
@@ -368,4 +449,64 @@ pub fn save_text_sheet(
         .remove(&id)
         .unwrap_or_default();
     Ok(to_meta(paths, row, tags))
+}
+
+/// Saves a pasted image next to the text file; returns one line `{{IMG:filename}}` for the reader preview (same directory).
+#[tauri::command]
+pub fn save_sheet_clipboard_image(
+    state: State<'_, AppState>,
+    sheet_id: String,
+    image_base64: String,
+    extension: String,
+) -> Result<String, String> {
+    use base64::Engine;
+
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(image_base64.trim())
+        .map_err(|e| format!("无效的图片数据: {e}"))?;
+    if bytes.is_empty() {
+        return Err(AppError::BadInput("empty image".into()).to_string());
+    }
+
+    let paths = &state.paths;
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
+    let row = db::get_sheet(&conn, &sheet_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| AppError::BadInput(format!("no sheet with id {sheet_id}")).to_string())?;
+    if row.kind != "text" {
+        return Err("仅文本曲谱支持剪切板贴图。".into());
+    }
+
+    let ext_raw = extension.to_lowercase();
+    let ext_raw = ext_raw.trim_start_matches('.').trim();
+    let ext_norm = match ext_raw {
+        "png" => "png",
+        "jpg" | "jpeg" => "jpg",
+        "webp" => "webp",
+        "gif" => "gif",
+        other => {
+            return Err(AppError::BadInput(format!("unsupported image type: {other}")).to_string());
+        }
+    };
+
+    let tab_path = paths.data_dir.join(&row.local_rel_path);
+    let dir = tab_path
+        .parent()
+        .ok_or_else(|| AppError::BadInput("invalid sheet path".into()).to_string())?;
+    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+
+    let id_short: String = Uuid::new_v4()
+        .to_string()
+        .chars()
+        .filter(|c| *c != '-')
+        .take(8)
+        .collect();
+    let filename = format!("paste_{id_short}.{ext_norm}");
+    let dest = dir.join(&filename);
+    std::fs::write(&dest, &bytes).map_err(|e| e.to_string())?;
+
+    Ok(format!("{{IMG:{filename}}}"))
 }
