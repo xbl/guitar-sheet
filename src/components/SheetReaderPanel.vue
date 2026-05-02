@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onUnmounted, ref, watch } from "vue"
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue"
 import { useRouter } from "vue-router"
 import { invoke } from "@tauri-apps/api/core"
 import { convertFileSrc } from "@tauri-apps/api/core"
@@ -7,6 +7,13 @@ import { readFile, readTextFile } from "@tauri-apps/plugin-fs"
 import * as pdfjsLib from "pdfjs-dist"
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url"
 import type { SheetMeta } from "../types/sheet"
+import PracticeToolbar from "./practice/PracticeToolbar.vue"
+import { useAutoScroll } from "../composables/useAutoScroll"
+import { useMetronome } from "../composables/useMetronome"
+import {
+  loadPracticePreferences,
+  savePracticePreferences,
+} from "../practice/practicePreferences"
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 
@@ -44,8 +51,71 @@ const lineHeight = ref(1.6)
 const imgSrc = ref("")
 const textAreaRef = ref<HTMLTextAreaElement | null>(null)
 const titleInputRef = ref<HTMLInputElement | null>(null)
+const readerBodyRef = ref<HTMLElement | null>(null)
+const practicePlaying = ref(false)
+const practiceBpm = ref(120)
+const practiceScrollLevel = ref(10)
+const practiceMetronomeMuted = ref(false)
+const practiceAudioWarning = ref("")
 /** Revoked when switching sheets or unmount; separate from imgSrc string when using blob URLs. */
 let imageBlobUrl: string | null = null
+
+onMounted(() => {
+  const p = loadPracticePreferences()
+  practiceBpm.value = p.bpm
+  practiceScrollLevel.value = p.scrollLevel
+  practiceMetronomeMuted.value = p.metronomeMuted
+})
+
+watch(
+  [practiceBpm, practiceScrollLevel, practiceMetronomeMuted],
+  () => {
+    savePracticePreferences(localStorage, {
+      bpm: practiceBpm.value,
+      scrollLevel: practiceScrollLevel.value,
+      metronomeMuted: practiceMetronomeMuted.value,
+    })
+  },
+)
+
+watch(editingText, (ed) => {
+  if (ed) practicePlaying.value = false
+})
+
+useAutoScroll({
+  scrollParentRef: readerBodyRef,
+  isPlaying: practicePlaying,
+  scrollLevel: practiceScrollLevel,
+})
+
+const { resumeIfNeeded: practiceResumeMetronome } = useMetronome({
+  bpm: practiceBpm,
+  muted: practiceMetronomeMuted,
+  isPlaying: practicePlaying,
+  onAudioUnavailable: (r) => {
+    practiceAudioWarning.value = r
+  },
+})
+
+async function onPracticeTogglePlay() {
+  if (editingText.value) return
+  if (!practicePlaying.value) {
+    await practiceResumeMetronome()
+  }
+  practicePlaying.value = !practicePlaying.value
+}
+
+function setPracticeBpm(v: number) {
+  practiceBpm.value = v
+}
+
+function setPracticeScrollLevel(v: number) {
+  practiceScrollLevel.value = v
+}
+
+function setPracticeMetronomeMuted(v: boolean) {
+  practiceMetronomeMuted.value = v
+}
 
 type TextPreviewSeg =
   | { type: "text"; content: string }
@@ -453,6 +523,7 @@ async function onTextPaste(e: ClipboardEvent) {
 watch(
   () => props.sheetId,
   () => {
+    practicePlaying.value = false
     void load()
   },
 )
@@ -542,7 +613,22 @@ onUnmounted(() => {
       </details>
     </header>
 
-    <div class="reader-body">
+    <div v-if="meta" class="practice-strip">
+      <PracticeToolbar
+        :is-playing="practicePlaying"
+        :bpm="practiceBpm"
+        :scroll-level="practiceScrollLevel"
+        :metronome-muted="practiceMetronomeMuted"
+        :audio-warning="practiceAudioWarning"
+        :disabled="editingText"
+        @toggle-play="onPracticeTogglePlay"
+        @update:bpm="setPracticeBpm"
+        @update:scroll-level="setPracticeScrollLevel"
+        @update:metronome-muted="setPracticeMetronomeMuted"
+      />
+    </div>
+
+    <div ref="readerBodyRef" class="reader-body">
       <p v-if="error" class="err">{{ error }}</p>
 
       <div v-else-if="!sheetId" class="empty">
@@ -747,6 +833,12 @@ onUnmounted(() => {
   cursor: pointer;
   color: var(--gs-link);
   font-size: 1rem;
+}
+.practice-strip {
+  flex-shrink: 0;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--gs-border);
+  background: var(--gs-bg-muted);
 }
 .reader-body {
   flex: 1;
