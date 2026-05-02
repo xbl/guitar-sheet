@@ -14,12 +14,18 @@ const props = withDefaults(
   defineProps<{
     sheetId: string | null
     variant?: "embed" | "page"
+    /**
+     * 若与当前载入的曲谱 id 相同，本次载入完成后自动进入标题与正文编辑（用于新建后打开）。
+     * 处理后会触发 `pendingTextEditConsumed` 以便父级清空。
+     */
+    pendingTextEditForSheetId?: string | null
   }>(),
-  { variant: "embed" },
+  { variant: "embed", pendingTextEditForSheetId: null },
 )
 
 const emit = defineEmits<{
   deleted: [id: string]
+  pendingTextEditConsumed: []
 }>()
 
 const router = useRouter()
@@ -38,6 +44,7 @@ const fontPx = ref(16)
 const lineHeight = ref(1.6)
 const imgSrc = ref("")
 const textAreaRef = ref<HTMLTextAreaElement | null>(null)
+const titleInputRef = ref<HTMLInputElement | null>(null)
 /** Revoked when switching sheets or unmount; separate from imgSrc string when using blob URLs. */
 let imageBlobUrl: string | null = null
 
@@ -178,6 +185,11 @@ const textDirty = computed(
   () => meta.value?.kind === "text" && editingText.value && textDraft.value !== textBaseline.value,
 )
 
+/** 编辑中文本仅空白时不能保存（不写入空正文）。 */
+const textSaveEmpty = computed(
+  () => meta.value?.kind === "text" && editingText.value && textDraft.value.trim() === "",
+)
+
 async function load() {
   error.value = null
   textBody.value = ""
@@ -204,6 +216,18 @@ async function load() {
       textBody.value = await readTextFile(path)
       textBaseline.value = textBody.value
       textDraft.value = textBody.value
+      if (
+        props.pendingTextEditForSheetId &&
+        props.pendingTextEditForSheetId === m.id
+      ) {
+        titleDraft.value = m.display_title
+        titleEditing.value = true
+        editingText.value = true
+        emit("pendingTextEditConsumed")
+        await nextTick()
+        titleInputRef.value?.focus()
+        titleInputRef.value?.select()
+      }
     } else if (m.kind === "image") {
       await loadImageSrc(path)
     } else if (m.kind === "pdf") {
@@ -225,6 +249,7 @@ async function load() {
 async function saveTextBody() {
   const id = props.sheetId
   if (!id || !meta.value || meta.value.kind !== "text") return
+  if (textDraft.value.trim() === "") return
   savingText.value = true
   error.value = null
   try {
@@ -446,6 +471,7 @@ onUnmounted(() => {
         </template>
         <template v-else>
           <input
+            ref="titleInputRef"
             v-model="titleDraft"
             class="title-input"
             type="text"
@@ -463,7 +489,7 @@ onUnmounted(() => {
         <button
           type="button"
           class="primary"
-          :disabled="!textDirty || savingText"
+          :disabled="!textDirty || savingText || textSaveEmpty"
           @click="saveTextBody"
         >
           {{ savingText ? "保存中…" : "保存正文" }}
