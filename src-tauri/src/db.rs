@@ -150,6 +150,8 @@ pub struct SheetRow {
     pub remote_blob_sha: Option<String>,
     pub last_local_modified_at: String,
     pub last_synced_at: Option<String>,
+    pub folder_id: Option<String>,
+    pub artist: Option<String>,
 }
 
 fn row_from_stmt(row: &rusqlite::Row<'_>) -> rusqlite::Result<SheetRow> {
@@ -163,6 +165,8 @@ fn row_from_stmt(row: &rusqlite::Row<'_>) -> rusqlite::Result<SheetRow> {
         remote_blob_sha: row.get(6)?,
         last_local_modified_at: row.get(7)?,
         last_synced_at: row.get(8)?,
+        folder_id: row.get(9)?,
+        artist: row.get(10)?,
     })
 }
 
@@ -170,8 +174,9 @@ pub fn insert_sheet(conn: &Connection, row: &SheetRow) -> AppResult<()> {
     conn.execute(
         r#"INSERT INTO sheets (
             id, display_title, kind, local_rel_path, local_content_hash,
-            remote_path, remote_blob_sha, last_local_modified_at, last_synced_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)"#,
+            remote_path, remote_blob_sha, last_local_modified_at, last_synced_at,
+            folder_id, artist
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)"#,
         params![
             row.id,
             row.display_title,
@@ -182,6 +187,8 @@ pub fn insert_sheet(conn: &Connection, row: &SheetRow) -> AppResult<()> {
             row.remote_blob_sha,
             row.last_local_modified_at,
             row.last_synced_at,
+            row.folder_id,
+            row.artist,
         ],
     )?;
     Ok(())
@@ -193,7 +200,8 @@ pub fn list_sheets(conn: &Connection, query: Option<&str>) -> AppResult<Vec<Shee
         let like = format!("%{q}%");
         let mut stmt = conn.prepare(
             r#"SELECT id, display_title, kind, local_rel_path, local_content_hash,
-                      remote_path, remote_blob_sha, last_local_modified_at, last_synced_at
+                      remote_path, remote_blob_sha, last_local_modified_at, last_synced_at,
+                      folder_id, artist
                FROM sheets
                WHERE display_title LIKE ?1 OR local_rel_path LIKE ?1
                ORDER BY last_local_modified_at DESC"#,
@@ -205,7 +213,8 @@ pub fn list_sheets(conn: &Connection, query: Option<&str>) -> AppResult<Vec<Shee
     } else {
         let mut stmt = conn.prepare(
             r#"SELECT id, display_title, kind, local_rel_path, local_content_hash,
-                      remote_path, remote_blob_sha, last_local_modified_at, last_synced_at
+                      remote_path, remote_blob_sha, last_local_modified_at, last_synced_at,
+                      folder_id, artist
                FROM sheets
                ORDER BY last_local_modified_at DESC"#,
         )?;
@@ -220,7 +229,8 @@ pub fn list_sheets(conn: &Connection, query: Option<&str>) -> AppResult<Vec<Shee
 pub fn get_sheet(conn: &Connection, id: &str) -> AppResult<Option<SheetRow>> {
     let mut stmt = conn.prepare(
         r#"SELECT id, display_title, kind, local_rel_path, local_content_hash,
-                  remote_path, remote_blob_sha, last_local_modified_at, last_synced_at
+                  remote_path, remote_blob_sha, last_local_modified_at, last_synced_at,
+                  folder_id, artist
            FROM sheets WHERE id = ?1"#,
     )?;
     let row = stmt.query_row(params![id], row_from_stmt).optional()?;
@@ -344,8 +354,10 @@ mod tests {
 
     #[test]
     fn insert_and_list() {
+        let dir = tempfile::tempdir().unwrap();
         let conn = Connection::open_in_memory().unwrap();
         init_schema(&conn).unwrap();
+        migrate(&conn, dir.path()).unwrap();
         let row = SheetRow {
             id: "id1".into(),
             display_title: "Test".into(),
@@ -356,6 +368,8 @@ mod tests {
             remote_blob_sha: None,
             last_local_modified_at: Utc::now().to_rfc3339(),
             last_synced_at: None,
+            folder_id: None,
+            artist: None,
         };
         insert_sheet(&conn, &row).unwrap();
         let all = list_sheets(&conn, None).unwrap();
@@ -436,18 +450,25 @@ mod tests {
         let db_path = data.join("index.sqlite3");
         let conn = Connection::open(&db_path).unwrap();
         init_schema(&conn).unwrap();
-        let row = SheetRow {
-            id: id.into(),
-            display_title: "T".into(),
-            kind: "text".into(),
-            local_rel_path: rel,
-            local_content_hash: "abc".into(),
-            remote_path: None,
-            remote_blob_sha: None,
-            last_local_modified_at: Utc::now().to_rfc3339(),
-            last_synced_at: None,
-        };
-        insert_sheet(&conn, &row).unwrap();
+        let now = Utc::now().to_rfc3339();
+        conn.execute(
+            r#"INSERT INTO sheets (
+                id, display_title, kind, local_rel_path, local_content_hash,
+                remote_path, remote_blob_sha, last_local_modified_at, last_synced_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)"#,
+            params![
+                id,
+                "T",
+                "text",
+                &rel,
+                "abc",
+                None::<String>,
+                None::<String>,
+                now,
+                None::<String>,
+            ],
+        )
+        .unwrap();
         migrate(&conn, data).unwrap();
 
         let new_path = data.join("library/content").join(id).join("content.txt");

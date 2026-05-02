@@ -7,6 +7,7 @@ use uuid::Uuid;
 use crate::db::{self, SheetRow};
 use crate::github::GitHubRest;
 use crate::hash;
+use crate::library_paths;
 use crate::secrets;
 use crate::settings;
 use crate::state::AppState;
@@ -101,7 +102,7 @@ pub fn resolve_sheet_conflict(
         "save_copy" => {
             let bytes = fs::read(&disk_path).map_err(|e| e.to_string())?;
             let new_id = Uuid::new_v4().to_string();
-            let dest_dir = state.paths.library_dir.join(&new_id);
+            let dest_dir = library_paths::content_root(&state.paths.library_dir).join(&new_id);
             fs::create_dir_all(&dest_dir).map_err(|e| e.to_string())?;
             let fname = Path::new(&row.local_rel_path)
                 .file_name()
@@ -110,14 +111,11 @@ pub fn resolve_sheet_conflict(
             let dest = dest_dir.join(fname);
             fs::write(&dest, &bytes).map_err(|e| e.to_string())?;
             let nh = hash::sha256_file(&dest).map_err(|e| e.to_string())?;
-            let ext = Path::new(fname)
-                .extension()
-                .and_then(|e| e.to_str())
-                .map(|e| format!(".{e}"))
-                .unwrap_or_else(|| ".txt".into());
             let prefix = gh.normalized_prefix();
-            let new_remote = format!("{}{}{}", prefix, new_id, ext);
-            let local_rel = format!("library/{new_id}/{fname}");
+            let local_rel =
+                library_paths::rel_path_content_file(&format!("{new_id}/{fname}"));
+            let gh_suffix = library_paths::strip_content_prefix(&local_rel);
+            let new_remote = format!("{}{}", prefix, gh_suffix);
             let new_row = SheetRow {
                 id: new_id.clone(),
                 display_title: format!("{} (copy)", row.display_title),
@@ -128,6 +126,8 @@ pub fn resolve_sheet_conflict(
                 remote_blob_sha: None,
                 last_local_modified_at: now.clone(),
                 last_synced_at: None,
+                folder_id: None,
+                artist: None,
             };
             let c = state
                 .conn

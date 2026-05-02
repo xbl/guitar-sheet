@@ -6,6 +6,8 @@ export interface SheetMeta {
   absolute_path: string;
   local_content_hash: string;
   remote_path: string | null;
+  folder_id: string | null;
+  artist: string | null;
 }
 
 export interface ConflictEntry {

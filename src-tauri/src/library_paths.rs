@@ -11,6 +11,15 @@ pub fn rel_path_content_file(rel_under_content: &str) -> String {
     format!("library/content/{}", rel_under_content.trim_start_matches('/'))
 }
 
+/// Strip leading `library/content/` for GitHub blob paths after sync prefix.
+pub fn strip_content_prefix(local_rel_path: &str) -> String {
+    local_rel_path
+        .strip_prefix("library/content/")
+        .unwrap_or(local_rel_path)
+        .trim_start_matches('/')
+        .to_string()
+}
+
 /// Absolute directory path under `library_dir/content/` for nested folders.
 pub fn folder_disk_path(library_dir: &Path, segments: &[String]) -> PathBuf {
     let mut p = content_root(library_dir);
@@ -40,6 +49,14 @@ mod tests {
         assert_eq!(
             rel_path_content_file("foo/bar.txt"),
             "library/content/foo/bar.txt"
+        );
+    }
+
+    #[test]
+    fn strip_content_prefix_round_trip() {
+        assert_eq!(
+            strip_content_prefix("library/content/a/b.txt"),
+            "a/b.txt"
         );
     }
 

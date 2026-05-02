@@ -19,6 +19,8 @@ pub struct SheetMeta {
     pub absolute_path: String,
     pub local_content_hash: String,
     pub remote_path: Option<String>,
+    pub folder_id: Option<String>,
+    pub artist: Option<String>,
 }
 
 fn to_meta(paths: &crate::paths::AppPaths, row: SheetRow) -> SheetMeta {
@@ -31,6 +33,8 @@ fn to_meta(paths: &crate::paths::AppPaths, row: SheetRow) -> SheetMeta {
         absolute_path: absolute_path.to_string_lossy().to_string(),
         local_content_hash: row.local_content_hash,
         remote_path: row.remote_path,
+        folder_id: row.folder_id,
+        artist: row.artist,
     }
 }
 
@@ -39,12 +43,32 @@ pub fn import_sheet(
     state: State<'_, AppState>,
     source_path: String,
     maybe_title: Option<String>,
+    folder_id: Option<String>,
 ) -> Result<SheetMeta, String> {
     let paths = &state.paths;
     let src = Path::new(&source_path);
     if !src.is_file() {
         return Err(AppError::BadInput("source is not a file".into()).to_string());
     }
+
+    let segments: Vec<String> = {
+        let conn = state
+            .conn
+            .lock()
+            .map_err(|_| "database lock poisoned".to_string())?;
+        match &folder_id {
+            Some(fid) => {
+                if db::get_folder(&conn, fid)
+                    .map_err(|e| e.to_string())?
+                    .is_none()
+                {
+                    return Err(format!("folder not found: {fid}"));
+                }
+                db::folder_path_segments(&conn, fid).map_err(|e| e.to_string())?
+            }
+            None => Vec::new(),
+        }
+    };
 
     let orig_ext = src
         .extension()
@@ -65,31 +89,44 @@ pub fn import_sheet(
         }
     };
 
-    let ext_for_remote = file_name
-        .strip_prefix("content")
-        .unwrap_or(&file_name)
-        .to_string();
-
     let id = Uuid::new_v4().to_string();
-    let dest_dir = library_paths::content_root(&paths.library_dir).join(&id);
+    let id_nodash: String = id.chars().filter(|c| *c != '-').collect();
+    let id_short: String = id_nodash.chars().take(12).collect();
+
+    let stem = src
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("sheet");
+    let display_title = maybe_title
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| stem.to_string());
+
+    let stem_safe = crate::sanitize::storage_stem(&display_title);
+    let ext_for_file = Path::new(&file_name)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("txt");
+    let storage_filename = format!("{stem_safe}_{id_short}.{ext_for_file}");
+
+    let dest_dir = library_paths::folder_disk_path(&paths.library_dir, &segments);
     std::fs::create_dir_all(&dest_dir).map_err(|e| e.to_string())?;
-    let dest = dest_dir.join(&file_name);
+    let dest = dest_dir.join(&storage_filename);
     std::fs::copy(src, &dest).map_err(|e| e.to_string())?;
+
+    let rel_under = if segments.is_empty() {
+        storage_filename.clone()
+    } else {
+        format!("{}/{}", segments.join("/"), storage_filename)
+    };
+    let local_rel_path = library_paths::rel_path_content_file(&rel_under);
+    let gh_suffix = library_paths::strip_content_prefix(&local_rel_path);
 
     let hash = hash::sha256_file(&dest).map_err(|e| e.to_string())?;
     let modified = chrono::Utc::now().to_rfc3339();
 
     let gh = settings::load(paths).map_err(|e| e.to_string())?;
     let prefix = gh.normalized_prefix();
-    let remote_path = format!("{}{}{}", prefix, id, ext_for_remote);
-
-    let local_rel_path = library_paths::rel_path_content_file(&format!("{id}/{file_name}"));
-
-    let stem = src
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("sheet");
-    let display_title = maybe_title.unwrap_or_else(|| stem.to_string());
+    let remote_path = format!("{}{}", prefix, gh_suffix);
 
     let row = SheetRow {
         id: id.clone(),
@@ -101,6 +138,8 @@ pub fn import_sheet(
         remote_blob_sha: None,
         last_local_modified_at: modified,
         last_synced_at: None,
+        folder_id,
+        artist: None,
     };
 
     let conn = state
@@ -155,17 +194,11 @@ pub fn delete_sheet(state: State<'_, AppState>, id: String) -> Result<(), String
         .map_err(|e| e.to_string())?
         .ok_or_else(|| AppError::BadInput(format!("no sheet with id {id}")).to_string())?;
 
-    let parts: Vec<&str> = row.local_rel_path.split('/').collect();
-    if parts.len() >= 4 && parts[0] == "library" && parts[1] == "content" {
-        let dir = paths
-            .data_dir
-            .join("library")
-            .join("content")
-            .join(parts[2]);
-        let _ = std::fs::remove_dir_all(&dir);
-    } else if parts.len() >= 2 && parts[0] == "library" {
-        let dir = paths.data_dir.join("library").join(parts[1]);
-        let _ = std::fs::remove_dir_all(&dir);
+    let abs = paths.data_dir.join(&row.local_rel_path);
+    if abs.is_file() {
+        let _ = std::fs::remove_file(&abs);
+    } else if abs.is_dir() {
+        let _ = std::fs::remove_dir_all(&abs);
     }
 
     db::delete_sheet(&conn, &id).map_err(|e| e.to_string())

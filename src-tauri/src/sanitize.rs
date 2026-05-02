@@ -12,6 +12,21 @@ pub fn sanitize_segment(name: &str) -> Result<String, AppError> {
     Ok(t.to_string())
 }
 
+/// Stems used in stored filenames (import); avoid empty or path-like output.
+pub fn storage_stem(raw: &str) -> String {
+    let t = raw.trim();
+    let filtered: String = t
+        .chars()
+        .filter(|c| !c.is_control() && *c != '/' && *c != '\\' && *c != ':')
+        .collect();
+    let filtered = filtered.trim_matches(|c| c == '.' || c == ' ');
+    if filtered.is_empty() {
+        "sheet".into()
+    } else {
+        filtered.chars().take(120).collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -35,5 +50,11 @@ mod tests {
     #[test]
     fn sanitize_segment_rejects_control() {
         assert!(sanitize_segment("a\u{1}b").is_err());
+    }
+
+    #[test]
+    fn storage_stem_filters_path_chars() {
+        assert_eq!(storage_stem("  foo/bar  "), "foobar");
+        assert_eq!(storage_stem("..."), "sheet");
     }
 }

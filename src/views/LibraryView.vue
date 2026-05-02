@@ -34,8 +34,9 @@ async function pickImport() {
     if (selected === null) return;
     const path = typeof selected === "string" ? selected : selected[0];
     await invoke("import_sheet", {
-      source_path: path,
-      maybe_title: null,
+      sourcePath: path,
+      maybeTitle: null,
+      folderId: null,
     });
     await refresh();
     syncMsg.value = "已导入";
@@ -79,7 +80,7 @@ async function resolveConflict(
 ) {
   error.value = null;
   try {
-    await invoke("resolve_sheet_conflict", { sheet_id: id, choice });
+    await invoke("resolve_sheet_conflict", { sheetId: id, choice });
     syncMsg.value = "冲突已处理";
     conflicts.value = conflicts.value.filter((c) => c.sheet_id !== id);
     await refresh();
