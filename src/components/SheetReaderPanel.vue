@@ -35,7 +35,6 @@ const textBody = ref("")
 const textBaseline = ref("")
 const textDraft = ref("")
 const editingText = ref(false)
-const savingText = ref(false)
 
 const titleEditing = ref(false)
 const titleDraft = ref("")
@@ -181,15 +180,6 @@ const canvasEl = ref<HTMLCanvasElement | null>(null)
 let pdfDoc: import("pdfjs-dist").PDFDocumentProxy | null = null
 let renderTask: { cancel: () => void } | null = null
 
-const textDirty = computed(
-  () => meta.value?.kind === "text" && editingText.value && textDraft.value !== textBaseline.value,
-)
-
-/** 编辑中文本仅空白时不能保存（不写入空正文）。 */
-const textSaveEmpty = computed(
-  () => meta.value?.kind === "text" && editingText.value && textDraft.value.trim() === "",
-)
-
 async function load() {
   error.value = null
   textBody.value = ""
@@ -250,7 +240,6 @@ async function saveTextBody() {
   const id = props.sheetId
   if (!id || !meta.value || meta.value.kind !== "text") return
   if (textDraft.value.trim() === "") return
-  savingText.value = true
   error.value = null
   try {
     const updated = await invoke<SheetMeta>("save_text_sheet", {
@@ -262,21 +251,21 @@ async function saveTextBody() {
     textBaseline.value = textDraft.value
   } catch (e) {
     error.value = String(e)
-  } finally {
-    savingText.value = false
   }
 }
 
-function toggleTextEdit() {
-  if (editingText.value && textDirty.value) {
-    if (!confirm("正文已修改，退出编辑将丢失未保存的更改。确定退出？")) {
-      return
-    }
-    textDraft.value = textBaseline.value
-  }
-  editingText.value = !editingText.value
+function onTextActionPointerDown(e: PointerEvent) {
   if (editingText.value) {
+    e.preventDefault()
+  }
+}
+
+function onEditToolbarClick() {
+  if (editingText.value) {
+    void commitTextEdit()
+  } else {
     textDraft.value = textBaseline.value
+    editingText.value = true
   }
 }
 
@@ -284,28 +273,65 @@ function startTitleEdit() {
   if (!meta.value) return
   titleDraft.value = meta.value.display_title
   titleEditing.value = true
+  void nextTick(() => {
+    titleInputRef.value?.focus()
+    titleInputRef.value?.select()
+  })
 }
 
 function cancelTitleEdit() {
+  if (!meta.value) return
+  titleDraft.value = meta.value.display_title
   titleEditing.value = false
+  error.value = null
 }
 
-async function saveTitle() {
-  const id = props.sheetId
-  if (!id || !meta.value) return
+async function commitTitleEdit() {
+  if (!titleEditing.value || !meta.value || !props.sheetId) return
   const t = titleDraft.value.trim()
   if (!t) {
-    error.value = "标题不能为空。"
+    titleDraft.value = meta.value.display_title
+    titleEditing.value = false
+    error.value = null
+    return
+  }
+  if (t === meta.value.display_title) {
+    titleEditing.value = false
     return
   }
   error.value = null
   try {
-    await invoke("rename_sheet_title", { id, title: t })
+    await invoke("rename_sheet_title", { id: props.sheetId, title: t })
     meta.value = { ...meta.value, display_title: t }
     titleEditing.value = false
   } catch (e) {
     error.value = String(e)
   }
+}
+
+function onTitleBlur() {
+  void commitTitleEdit()
+}
+
+function onTitleEnter() {
+  void commitTitleEdit()
+}
+
+async function commitTextEdit() {
+  if (!editingText.value || meta.value?.kind !== "text") return
+  if (textDraft.value.trim() === "") {
+    textDraft.value = textBaseline.value
+    editingText.value = false
+    return
+  }
+  if (textDraft.value !== textBaseline.value) {
+    await saveTextBody()
+  }
+  editingText.value = false
+}
+
+function onTextBlur() {
+  void commitTextEdit()
 }
 
 async function removeSheet() {
@@ -458,8 +484,14 @@ onUnmounted(() => {
       </button>
       <div v-if="meta" class="title-block">
         <template v-if="!titleEditing">
-          <h1>{{ meta.display_title }}</h1>
-          <button type="button" class="ghost" @click="startTitleEdit">改标题</button>
+          <button
+            type="button"
+            class="title-display"
+            title="点击编辑标题"
+            @click="startTitleEdit"
+          >
+            {{ meta.display_title }}
+          </button>
           <button
             v-if="variant === 'embed'"
             type="button"
@@ -476,23 +508,21 @@ onUnmounted(() => {
             class="title-input"
             type="text"
             maxlength="200"
-            @keydown.enter="saveTitle"
+            @keydown.enter.prevent="onTitleEnter"
+            @blur="onTitleBlur"
           />
-          <button type="button" class="ghost" @click="saveTitle">保存</button>
-          <button type="button" class="ghost" @click="cancelTitleEdit">取消</button>
+          <button type="button" class="ghost" @mousedown.prevent @click="cancelTitleEdit">
+            取消
+          </button>
         </template>
       </div>
       <div v-if="meta?.kind === 'text'" class="text-actions">
-        <button type="button" @click="toggleTextEdit">
-          {{ editingText ? "退出编辑" : "编辑正文" }}
-        </button>
         <button
           type="button"
-          class="primary"
-          :disabled="!textDirty || savingText || textSaveEmpty"
-          @click="saveTextBody"
+          @pointerdown="onTextActionPointerDown"
+          @click="onEditToolbarClick"
         >
-          {{ savingText ? "保存中…" : "保存正文" }}
+          {{ editingText ? "退出编辑" : "编辑正文" }}
         </button>
       </div>
     </header>
@@ -511,7 +541,7 @@ onUnmounted(() => {
             <label>行距 <input v-model.number="lineHeight" type="range" min="1.2" max="2.4" step="0.05" /></label>
           </div>
           <p v-if="editingText" class="paste-hint">
-            提示：编辑时 Ctrl+V 粘贴剪贴板图片会保存到曲谱同目录并在正文插入一行标记；退出编辑后正文里会显示图片预览。
+            提示：Ctrl+V 可粘贴图片；失焦或点「退出编辑」自动保存正文（空白不保存）。
           </p>
           <textarea
             v-if="editingText"
@@ -520,6 +550,7 @@ onUnmounted(() => {
             class="tab edit"
             :style="{ fontSize: fontPx + 'px', lineHeight: String(lineHeight) }"
             @paste="onTextPaste"
+            @blur="onTextBlur"
           />
           <div
             v-else
@@ -591,11 +622,26 @@ onUnmounted(() => {
   flex: 1;
   min-width: 0;
 }
-.bar h1 {
+.title-display {
   margin: 0;
   font-size: 1.05rem;
+  font-weight: 700;
   flex: 1;
   min-width: 0;
+  text-align: left;
+  border: none;
+  background: none;
+  padding: 0;
+  color: inherit;
+  font-family: inherit;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.title-display:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 .title-input {
   flex: 1;
@@ -622,18 +668,6 @@ onUnmounted(() => {
   flex-wrap: wrap;
   width: 100%;
   justify-content: flex-end;
-}
-.text-actions button.primary {
-  font-weight: 600;
-  border: 1px solid #2563eb;
-  background: #eff6ff;
-  border-radius: 6px;
-  padding: 0.35rem 0.65rem;
-  cursor: pointer;
-}
-.text-actions button.primary:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 .back {
   border: none;

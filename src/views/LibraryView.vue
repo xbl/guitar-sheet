@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue"
-import { RouterLink } from "vue-router"
 import { invoke } from "@tauri-apps/api/core"
 import { open } from "@tauri-apps/plugin-dialog"
 import LibrarySheetTree from "../components/LibrarySheetTree.vue"
@@ -251,7 +250,6 @@ onMounted(() => {
           <button type="button" @click="pickImport">导入谱子</button>
           <button type="button" class="primary" @click="syncGitHub">与 GitHub 同步</button>
           <button type="button" @click="refresh">刷新</button>
-          <RouterLink class="link" to="/settings">设置</RouterLink>
         </div>
       </header>
 
@@ -416,7 +414,6 @@ onMounted(() => {
 .actions button.primary {
   font-weight: 600;
 }
-.link,
 .actions a {
   color: #2563eb;
   text-decoration: none;
