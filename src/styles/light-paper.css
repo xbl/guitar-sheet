@@ -12,6 +12,10 @@
   --gs-primary-bg: #eff6ff;
   --gs-danger: #b00020;
   --gs-chord: #c62828;
+  /** Chord diagram SVG (match crisp sheet apps): grid vs ink */
+  --gs-chord-fret: #d1d5db;
+  --gs-chord-string: #94a3b8;
+  --gs-chord-dot: #374151;
   --gs-success: #0a5;
   --gs-radius-sm: 6px;
   --gs-radius-md: 8px;

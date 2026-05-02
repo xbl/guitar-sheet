@@ -46,6 +46,7 @@ const parsedLines = computed<ParsedSheetLine[]>(() =>
 <style scoped>
 .chord-sheet {
   font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: inherit;
   color: var(--gs-text);
   line-height: 1.55;
 }
@@ -81,21 +82,22 @@ const parsedLines = computed<ParsedSheetLine[]>(() =>
   display: flex;
   flex-wrap: nowrap;
   align-items: flex-end;
-  gap: 0.35rem 0.5rem;
+  gap: 0.25em 0.35em;
 }
 .chord-row {
-  margin-bottom: 0.15rem;
-  min-height: 3.4rem;
+  margin-bottom: 0.08em;
+  /* Room for scaled SVG + label; tracks parent font-size */
+  min-height: 4.35em;
 }
 .chord-cell {
   flex: 0 0 auto;
-  min-width: 2.75rem;
+  min-width: 2.85em;
   display: flex;
   justify-content: center;
 }
 .chord-empty {
-  min-width: 2.75rem;
-  min-height: 2.5rem;
+  min-width: 2.85em;
+  min-height: 2.85em;
 }
 .lyric-cell {
   flex: 0 1 auto;
