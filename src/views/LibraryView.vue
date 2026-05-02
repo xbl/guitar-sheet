@@ -248,8 +248,17 @@ onMounted(() => {
             {{ creatingSheet ? "创建中…" : "新建曲谱" }}
           </button>
           <button type="button" @click="pickImport">导入谱子</button>
-          <button type="button" class="primary" @click="syncGitHub">与 GitHub 同步</button>
-          <button type="button" @click="refresh">刷新</button>
+          <button type="button" class="primary toolbar-sync-wide" @click="syncGitHub">
+            与 GitHub 同步
+          </button>
+          <button type="button" class="toolbar-sync-wide" @click="refresh">刷新</button>
+          <details class="toolbar-more-narrow">
+            <summary>更多 ▾</summary>
+            <div class="toolbar-more-body">
+              <button type="button" class="primary" @click="syncGitHub">与 GitHub 同步</button>
+              <button type="button" @click="refresh">刷新</button>
+            </div>
+          </details>
         </div>
       </header>
 
@@ -295,8 +304,8 @@ onMounted(() => {
   width: min(19rem, 38vw);
   flex-shrink: 0;
   padding: 0.75rem 0.65rem 1rem;
-  border-right: 1px solid #e8e8e8;
-  background: #fafafa;
+  border-right: 1px solid var(--gs-border);
+  background: var(--gs-bg-muted);
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -306,7 +315,7 @@ onMounted(() => {
   margin: 0 0 0.35rem;
   font-size: 1rem;
   font-weight: 700;
-  color: #333;
+  color: var(--gs-text);
 }
 .ctx-row {
   display: flex;
@@ -317,19 +326,19 @@ onMounted(() => {
 }
 .ctx-label {
   font-size: 0.75rem;
-  color: #888;
+  color: var(--gs-text-muted);
 }
 .ctx-btn {
   font-size: 0.78rem;
   padding: 0.2rem 0.45rem;
   border-radius: 4px;
-  border: 1px solid #ccc;
-  background: #fff;
+  border: 1px solid var(--gs-border);
+  background: var(--gs-bg-surface);
   cursor: pointer;
 }
 .ctx-btn.on {
-  border-color: #2563eb;
-  background: #eff6ff;
+  border-color: var(--gs-primary-border);
+  background: var(--gs-primary-bg);
   font-weight: 600;
 }
 .tree-scroll {
@@ -341,7 +350,7 @@ onMounted(() => {
 }
 .hint {
   margin: 0;
-  color: #777;
+  color: var(--gs-text-muted);
   line-height: 1.35;
 }
 .small {
@@ -357,17 +366,17 @@ onMounted(() => {
   min-width: 0;
   padding: 0.35rem 0.45rem;
   font-size: 0.85rem;
-  border: 1px solid #ccc;
-  border-radius: 6px;
+  border: 1px solid var(--gs-border);
+  border-radius: var(--gs-radius-sm);
 }
 .new-folder button {
   flex-shrink: 0;
   padding: 0.35rem 0.5rem;
   font-size: 0.85rem;
   cursor: pointer;
-  border-radius: 6px;
-  border: 1px solid #ccc;
-  background: #fff;
+  border-radius: var(--gs-radius-sm);
+  border: 1px solid var(--gs-border);
+  background: var(--gs-bg-surface);
 }
 .main {
   flex: 1;
@@ -387,8 +396,8 @@ onMounted(() => {
 .toolbar {
   flex-shrink: 0;
   padding: 0.5rem 0.75rem;
-  border-bottom: 1px solid #ececec;
-  background: #fff;
+  border-bottom: 1px solid var(--gs-border);
+  background: var(--gs-bg-surface);
 }
 .actions {
   display: flex;
@@ -397,52 +406,91 @@ onMounted(() => {
   align-items: center;
   justify-content: flex-end;
 }
+.toolbar-more-narrow {
+  display: none;
+}
+.toolbar-more-narrow summary {
+  cursor: pointer;
+  list-style: none;
+  font-size: 0.88rem;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--gs-border);
+  border-radius: var(--gs-radius-sm);
+  background: var(--gs-bg-muted);
+  color: var(--gs-text);
+}
+.toolbar-more-narrow summary::-webkit-details-marker {
+  display: none;
+}
+.toolbar-more-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-top: 0.35rem;
+  padding: 0.35rem;
+  border: 1px solid var(--gs-border);
+  border-radius: var(--gs-radius-sm);
+  background: var(--gs-bg-surface);
+  min-width: 10rem;
+}
+.toolbar-more-body button {
+  width: 100%;
+}
+@media (max-width: 42rem) {
+  .toolbar-sync-wide {
+    display: none !important;
+  }
+  .toolbar-more-narrow {
+    display: block;
+  }
+}
 .search {
   display: flex;
   align-items: center;
   gap: 0.35rem;
   font-size: 0.9rem;
-  color: #444;
+  color: var(--gs-text);
 }
 .search input {
   width: 10rem;
   padding: 0.3rem 0.45rem;
-  border: 1px solid #ccc;
-  border-radius: 6px;
+  border: 1px solid var(--gs-border);
+  border-radius: var(--gs-radius-sm);
   font: inherit;
+  background: var(--gs-bg-surface);
 }
 .actions button.primary {
   font-weight: 600;
 }
 .actions a {
-  color: #2563eb;
+  color: var(--gs-link);
   text-decoration: none;
   padding: 0.35rem 0.5rem;
 }
 .err {
-  color: #b00020;
+  color: var(--gs-danger);
   padding: 0 0.75rem;
   flex-shrink: 0;
 }
 .ok {
-  color: #0a5;
+  color: var(--gs-success);
   padding: 0 0.75rem;
   flex-shrink: 0;
 }
 .muted {
-  color: #666;
+  color: var(--gs-text-muted);
 }
 .conflicts {
   flex-shrink: 0;
   max-height: min(32vh, 20rem);
   overflow-y: auto;
   padding: 0.5rem 0.75rem 1rem;
-  border-top: 1px solid #eee;
-  background: #fafafa;
+  border-top: 1px solid var(--gs-border);
+  background: var(--gs-bg-muted);
 }
 .card {
-  border: 1px solid #ddd;
-  border-radius: 8px;
+  border: 1px solid var(--gs-border);
+  border-radius: var(--gs-radius-md);
   padding: 1rem;
   margin-bottom: 1rem;
 }
@@ -450,7 +498,7 @@ onMounted(() => {
   font-family: ui-monospace, monospace;
   font-size: 0.75rem;
   word-break: break-all;
-  color: #444;
+  color: var(--gs-text-muted);
 }
 .btns {
   display: flex;
@@ -461,13 +509,13 @@ onMounted(() => {
 button {
   cursor: pointer;
   padding: 0.35rem 0.75rem;
-  border-radius: 6px;
-  border: 1px solid #ccc;
-  background: #fafafa;
+  border-radius: var(--gs-radius-sm);
+  border: 1px solid var(--gs-border);
+  background: var(--gs-bg-muted);
 }
 button.primary {
-  border-color: #2563eb;
-  background: #eff6ff;
+  border-color: var(--gs-primary-border);
+  background: var(--gs-primary-bg);
 }
 button:disabled {
   opacity: 0.55;

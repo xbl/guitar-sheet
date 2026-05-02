@@ -525,6 +525,21 @@ onUnmounted(() => {
           {{ editingText ? "退出编辑" : "编辑正文" }}
         </button>
       </div>
+      <details v-if="meta?.kind === 'text'" class="reader-overflow-narrow">
+        <summary class="overflow-sum" title="字号与行距">⋯</summary>
+        <div class="overflow-panel">
+          <label>字号 <input v-model.number="fontPx" type="range" min="12" max="32" /></label>
+          <label>行距 <input v-model.number="lineHeight" type="range" min="1.2" max="2.4" step="0.05" /></label>
+        </div>
+      </details>
+      <details v-else-if="meta?.kind === 'pdf'" class="reader-overflow-narrow">
+        <summary class="overflow-sum" title="翻页">⋯</summary>
+        <div class="overflow-panel overflow-panel-row">
+          <button type="button" :disabled="pdfPage <= 1" @click="prevPdf">上一页</button>
+          <span>{{ pdfPage }} / {{ pdfTotal || "…" }}</span>
+          <button type="button" :disabled="!pdfDoc || pdfPage >= pdfTotal" @click="nextPdf">下一页</button>
+        </div>
+      </details>
     </header>
 
     <div class="reader-body">
@@ -591,6 +606,8 @@ onUnmounted(() => {
 
 <style scoped>
 .reader {
+  container-type: inline-size;
+  container-name: reader;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -611,8 +628,62 @@ onUnmounted(() => {
   align-items: center;
   gap: 0.75rem;
   padding: 0.65rem 0.75rem;
-  border-bottom: 1px solid #e5e5e5;
-  background: #fff;
+  border-bottom: 1px solid var(--gs-border);
+  background: var(--gs-bg-surface);
+}
+.reader-overflow-narrow {
+  display: none;
+  position: relative;
+  margin-left: auto;
+}
+.overflow-sum {
+  cursor: pointer;
+  list-style: none;
+  width: 2rem;
+  text-align: center;
+  font-size: 1.1rem;
+  line-height: 1;
+  padding: 0.25rem;
+  border-radius: var(--gs-radius-sm);
+  border: 1px solid var(--gs-border);
+  background: var(--gs-bg-muted);
+  color: var(--gs-text-muted);
+}
+.reader-overflow-narrow summary::-webkit-details-marker {
+  display: none;
+}
+.overflow-panel {
+  position: absolute;
+  z-index: 5;
+  margin-top: 0.25rem;
+  right: 0;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--gs-border);
+  border-radius: var(--gs-radius-sm);
+  background: var(--gs-bg-surface);
+  box-shadow: var(--gs-shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 12rem;
+}
+.overflow-panel-row {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: auto;
+}
+@container reader (max-width: 36rem) {
+  .reader-overflow-narrow {
+    display: block;
+  }
+  .text-wrap .controls {
+    display: none;
+  }
+  .pdf-wrap .pdf-controls {
+    display: none;
+  }
 }
 .title-block {
   display: flex;
@@ -648,19 +719,20 @@ onUnmounted(() => {
   min-width: 8rem;
   padding: 0.35rem 0.5rem;
   font-size: 1rem;
-  border: 1px solid #ccc;
-  border-radius: 6px;
+  border: 1px solid var(--gs-border);
+  border-radius: var(--gs-radius-sm);
+  background: var(--gs-bg-surface);
 }
 .ghost {
   border: none;
   background: none;
   cursor: pointer;
-  color: #2563eb;
+  color: var(--gs-link);
   font-size: 0.9rem;
   padding: 0.25rem 0.5rem;
 }
 .ghost.danger {
-  color: #b00020;
+  color: var(--gs-danger);
 }
 .text-actions {
   display: flex;
@@ -673,7 +745,7 @@ onUnmounted(() => {
   border: none;
   background: none;
   cursor: pointer;
-  color: #2563eb;
+  color: var(--gs-link);
   font-size: 1rem;
 }
 .reader-body {
@@ -685,7 +757,7 @@ onUnmounted(() => {
   flex-direction: column;
 }
 .err {
-  color: #b00020;
+  color: var(--gs-danger);
   padding: 1rem;
 }
 .empty {
@@ -694,7 +766,7 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   padding: 2rem;
-  color: #888;
+  color: var(--gs-text-muted);
   font-size: 0.95rem;
 }
 .text-wrap {
@@ -712,7 +784,7 @@ onUnmounted(() => {
 .paste-hint {
   margin: 0 0 0.5rem;
   font-size: 0.8rem;
-  color: #666;
+  color: var(--gs-text-muted);
   line-height: 1.4;
 }
 .tab {
@@ -723,9 +795,9 @@ onUnmounted(() => {
   white-space: pre-wrap;
   word-break: break-word;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  background: #fafafa;
-  border: 1px solid #eee;
-  border-radius: 8px;
+  background: var(--gs-bg-muted);
+  border: 1px solid var(--gs-border);
+  border-radius: var(--gs-radius-md);
   padding: 1rem;
   overflow: auto;
 }
@@ -756,13 +828,13 @@ onUnmounted(() => {
   max-width: 100%;
   height: auto;
   display: block;
-  border-radius: 6px;
-  border: 1px solid #e5e5e5;
+  border-radius: var(--gs-radius-sm);
+  border: 1px solid var(--gs-border);
 }
 .img-missing {
   margin: 0;
   font-size: 0.85rem;
-  color: #888;
+  color: var(--gs-text-muted);
 }
 .img-wrap {
   flex: 1 1 auto;
@@ -792,13 +864,13 @@ onUnmounted(() => {
   margin: 0 auto;
   max-width: 100%;
   height: auto;
-  border: 1px solid #ddd;
+  border: 1px solid var(--gs-border);
 }
 button {
   cursor: pointer;
   padding: 0.35rem 0.65rem;
-  border-radius: 6px;
-  border: 1px solid #ccc;
-  background: #fafafa;
+  border-radius: var(--gs-radius-sm);
+  border: 1px solid var(--gs-border);
+  background: var(--gs-bg-muted);
 }
 </style>

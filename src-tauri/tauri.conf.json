@@ -14,8 +14,9 @@
       {
         "label": "main",
         "title": "Guitar Sheet",
-        "width": 800,
-        "height": 600
+        "width": 1100,
+        "height": 720,
+        "maximized": true
       }
     ],
     "security": {

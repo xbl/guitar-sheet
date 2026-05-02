@@ -11,6 +11,10 @@
     "fs:allow-app-read",
     "fs:allow-app-write",
     "fs:allow-app-read-recursive",
-    "fs:allow-app-write-recursive"
+    "fs:allow-app-write-recursive",
+    "core:window:allow-set-always-on-top",
+    "core:window:allow-is-always-on-top",
+    "core:window:allow-set-fullscreen",
+    "core:window:allow-is-fullscreen"
   ]
 }

@@ -1,0 +1,31 @@
+:root,
+[data-theme="light-paper"] {
+  --gs-bg-app: #f4f4f5;
+  --gs-bg-surface: #ffffff;
+  --gs-bg-muted: #fafafa;
+  --gs-border: #e5e5e7;
+  --gs-text: #111827;
+  --gs-text-muted: #6b7280;
+  --gs-link: #2563eb;
+  --gs-link-hover: #1d4ed8;
+  --gs-primary-border: #2563eb;
+  --gs-primary-bg: #eff6ff;
+  --gs-danger: #b00020;
+  --gs-success: #0a5;
+  --gs-radius-sm: 6px;
+  --gs-radius-md: 8px;
+  --gs-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.05);
+}
+
+body {
+  color: var(--gs-text);
+  background: var(--gs-bg-app);
+}
+
+a {
+  color: var(--gs-link);
+}
+
+a:hover {
+  color: var(--gs-link-hover);
+}

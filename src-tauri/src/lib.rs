@@ -11,6 +11,7 @@ mod secrets;
 mod settings;
 mod state;
 mod sync_github;
+mod ui_prefs;
 
 use std::sync::Mutex;
 
@@ -64,6 +65,8 @@ pub fn run() {
             commands::github_settings::test_github_connection,
             commands::github_sync::sync_pull_push,
             commands::github_sync::resolve_sheet_conflict,
+            commands::ui_prefs::get_ui_prefs,
+            commands::ui_prefs::set_ui_prefs,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

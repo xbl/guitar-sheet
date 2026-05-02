@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
-import { RouterLink } from "vue-router";
 import { invoke } from "@tauri-apps/api/core";
 
 interface GitHubSettings {
@@ -89,10 +88,7 @@ onMounted(() => {
 
 <template>
   <div class="page">
-    <header class="head">
-      <RouterLink to="/" class="back">← 谱库</RouterLink>
-      <h1>设置</h1>
-    </header>
+    <h1 class="page-title">设置</h1>
 
     <p v-if="err" class="err">{{ err }}</p>
     <p v-if="msg" class="ok">{{ msg }}</p>
@@ -138,25 +134,18 @@ onMounted(() => {
   width: 100%;
   padding: 1rem 1.25rem 2rem;
 }
-.head {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  margin-bottom: 1rem;
-}
-.head h1 {
-  margin: 0;
+.page-title {
+  margin: 0 0 1rem;
   font-size: 1.25rem;
-}
-.back {
-  color: #2563eb;
-  text-decoration: none;
+  font-weight: 700;
+  color: var(--gs-text);
 }
 .card {
-  border: 1px solid #e5e5e5;
-  border-radius: 10px;
+  border: 1px solid var(--gs-border);
+  border-radius: var(--gs-radius-md);
   padding: 1rem 1.25rem;
   margin-bottom: 1.25rem;
+  background: var(--gs-bg-surface);
 }
 .card h2 {
   margin: 0 0 0.75rem;
@@ -178,6 +167,9 @@ input[type="password"] {
   box-sizing: border-box;
   margin-top: 0.2rem;
   padding: 0.4rem 0.5rem;
+  border: 1px solid var(--gs-border);
+  border-radius: var(--gs-radius-sm);
+  background: var(--gs-bg-surface);
 }
 .row {
   display: flex;
@@ -188,24 +180,24 @@ input[type="password"] {
 button {
   cursor: pointer;
   padding: 0.4rem 0.75rem;
-  border-radius: 6px;
-  border: 1px solid #ccc;
-  background: #fafafa;
+  border-radius: var(--gs-radius-sm);
+  border: 1px solid var(--gs-border);
+  background: var(--gs-bg-muted);
 }
 button.primary {
-  border-color: #2563eb;
-  background: #eff6ff;
+  border-color: var(--gs-primary-border);
+  background: var(--gs-primary-bg);
   font-weight: 600;
 }
 .err {
-  color: #b00020;
+  color: var(--gs-danger);
 }
 .ok {
-  color: #0a5;
+  color: var(--gs-success);
 }
 .hint {
   font-size: 0.85rem;
-  color: #555;
+  color: var(--gs-text-muted);
 }
 code {
   font-size: 0.85em;
