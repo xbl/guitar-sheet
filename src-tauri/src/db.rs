@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::Path;
 
 use chrono::Utc;
@@ -170,6 +171,81 @@ fn row_from_stmt(row: &rusqlite::Row<'_>) -> rusqlite::Result<SheetRow> {
     })
 }
 
+/// Use as `folder_id` filter value in [`list_sheets_filtered`] to list sheets not in any user folder (`folder_id IS NULL`).
+pub const FOLDER_ROOT_SENTINEL: &str = "__root__";
+
+fn query_sheet_rows(conn: &Connection, sql: &str, args: &[String]) -> AppResult<Vec<SheetRow>> {
+    let mut stmt = conn.prepare(sql)?;
+    let rows = match args.len() {
+        0 => stmt.query_map([], row_from_stmt)?,
+        1 => stmt.query_map(params![args[0]], row_from_stmt)?,
+        2 => stmt.query_map(params![args[0], args[1]], row_from_stmt)?,
+        3 => stmt.query_map(params![args[0], args[1], args[2]], row_from_stmt)?,
+        4 => stmt.query_map(params![args[0], args[1], args[2], args[3]], row_from_stmt)?,
+        5 => stmt.query_map(
+            params![args[0], args[1], args[2], args[3], args[4]],
+            row_from_stmt,
+        )?,
+        6 => stmt.query_map(
+            params![args[0], args[1], args[2], args[3], args[4], args[5]],
+            row_from_stmt,
+        )?,
+        _ => {
+            return Err(AppError::BadInput(format!(
+                "unexpected bind count {}",
+                args.len()
+            )));
+        }
+    };
+    rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+}
+
+/// Filter sheets by optional text query (title, path, artist, tag names), folder (`None` = any folder;
+/// [`FOLDER_ROOT_SENTINEL`] = root only), and tag name substring.
+pub fn list_sheets_filtered(
+    conn: &Connection,
+    query: Option<&str>,
+    folder_id: Option<&str>,
+    tag_substring: Option<&str>,
+) -> AppResult<Vec<SheetRow>> {
+    let mut buf = String::from(
+        "SELECT DISTINCT s.id, s.display_title, s.kind, s.local_rel_path, s.local_content_hash, \
+         s.remote_path, s.remote_blob_sha, s.last_local_modified_at, s.last_synced_at, s.folder_id, s.artist \
+         FROM sheets s WHERE 1=1",
+    );
+    let mut args: Vec<String> = Vec::new();
+
+    if let Some(q) = query {
+        let l = format!("%{q}%");
+        for _ in 0..4 {
+            args.push(l.clone());
+        }
+        buf.push_str(
+            " AND (s.display_title LIKE ? OR s.local_rel_path LIKE ? OR IFNULL(s.artist,'') LIKE ? \
+             OR EXISTS (SELECT 1 FROM sheet_tags st INNER JOIN tags tg ON st.tag_id = tg.id \
+             WHERE st.sheet_id = s.id AND tg.name LIKE ?))",
+        );
+    }
+    if let Some(fid) = folder_id {
+        if fid == FOLDER_ROOT_SENTINEL {
+            buf.push_str(" AND s.folder_id IS NULL");
+        } else {
+            buf.push_str(" AND s.folder_id = ?");
+            args.push(fid.to_string());
+        }
+    }
+    if let Some(t) = tag_substring {
+        let l = format!("%{t}%");
+        args.push(l);
+        buf.push_str(
+            " AND EXISTS (SELECT 1 FROM sheet_tags st INNER JOIN tags tg ON st.tag_id = tg.id \
+             WHERE st.sheet_id = s.id AND tg.name LIKE ?)",
+        );
+    }
+    buf.push_str(" ORDER BY s.last_local_modified_at DESC");
+    query_sheet_rows(conn, &buf, &args)
+}
+
 pub fn insert_sheet(conn: &Connection, row: &SheetRow) -> AppResult<()> {
     conn.execute(
         r#"INSERT INTO sheets (
@@ -195,35 +271,7 @@ pub fn insert_sheet(conn: &Connection, row: &SheetRow) -> AppResult<()> {
 }
 
 pub fn list_sheets(conn: &Connection, query: Option<&str>) -> AppResult<Vec<SheetRow>> {
-    let mut out = Vec::new();
-    if let Some(q) = query {
-        let like = format!("%{q}%");
-        let mut stmt = conn.prepare(
-            r#"SELECT id, display_title, kind, local_rel_path, local_content_hash,
-                      remote_path, remote_blob_sha, last_local_modified_at, last_synced_at,
-                      folder_id, artist
-               FROM sheets
-               WHERE display_title LIKE ?1 OR local_rel_path LIKE ?1
-               ORDER BY last_local_modified_at DESC"#,
-        )?;
-        let rows = stmt.query_map(params![like], row_from_stmt)?;
-        for r in rows {
-            out.push(r?);
-        }
-    } else {
-        let mut stmt = conn.prepare(
-            r#"SELECT id, display_title, kind, local_rel_path, local_content_hash,
-                      remote_path, remote_blob_sha, last_local_modified_at, last_synced_at,
-                      folder_id, artist
-               FROM sheets
-               ORDER BY last_local_modified_at DESC"#,
-        )?;
-        let rows = stmt.query_map([], row_from_stmt)?;
-        for r in rows {
-            out.push(r?);
-        }
-    }
-    Ok(out)
+    list_sheets_filtered(conn, query, None, None)
 }
 
 pub fn get_sheet(conn: &Connection, id: &str) -> AppResult<Option<SheetRow>> {
@@ -271,6 +319,68 @@ pub fn update_display_title(conn: &Connection, id: &str, title: &str) -> AppResu
 pub fn delete_sheet(conn: &Connection, id: &str) -> AppResult<()> {
     conn.execute("DELETE FROM sheets WHERE id = ?1", params![id])?;
     Ok(())
+}
+
+// --- Tags (schema v2) ---
+
+pub fn normalize_tag_name(raw: &str) -> String {
+    raw.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase()
+}
+
+fn ensure_tag(conn: &Connection, name: &str) -> AppResult<String> {
+    let mut stmt = conn.prepare("SELECT id FROM tags WHERE name = ?1")?;
+    let found: Option<String> = stmt
+        .query_row(params![name], |r| r.get(0))
+        .optional()?;
+    if let Some(id) = found {
+        return Ok(id);
+    }
+    let id = uuid::Uuid::new_v4().to_string();
+    conn.execute(
+        "INSERT INTO tags (id, name) VALUES (?1, ?2)",
+        params![id, name],
+    )?;
+    Ok(id)
+}
+
+pub fn replace_sheet_tags(conn: &Connection, sheet_id: &str, raw_names: &[String]) -> AppResult<()> {
+    conn.execute("DELETE FROM sheet_tags WHERE sheet_id = ?1", params![sheet_id])?;
+    for raw in raw_names {
+        let n = normalize_tag_name(raw);
+        if n.is_empty() {
+            continue;
+        }
+        let tid = ensure_tag(conn, &n)?;
+        conn.execute(
+            "INSERT INTO sheet_tags (sheet_id, tag_id) VALUES (?1, ?2)",
+            params![sheet_id, tid],
+        )?;
+    }
+    Ok(())
+}
+
+pub fn list_all_tag_names(conn: &Connection) -> AppResult<Vec<String>> {
+    let mut stmt = conn.prepare("SELECT name FROM tags ORDER BY name COLLATE NOCASE")?;
+    let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+}
+
+pub fn tags_for_sheet_ids(
+    conn: &Connection,
+    sheet_ids: &[String],
+) -> AppResult<HashMap<String, Vec<String>>> {
+    let mut map: HashMap<String, Vec<String>> = HashMap::new();
+    for id in sheet_ids {
+        let mut stmt = conn.prepare(
+            "SELECT tg.name FROM sheet_tags st INNER JOIN tags tg ON st.tag_id = tg.id \
+             WHERE st.sheet_id = ?1 ORDER BY tg.name",
+        )?;
+        let names: Vec<String> = stmt
+            .query_map(params![id.as_str()], |r| r.get(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        map.insert(id.clone(), names);
+    }
+    Ok(map)
 }
 
 // --- Folders (schema v2) ---
@@ -436,6 +546,34 @@ mod tests {
         .unwrap();
         let segs = folder_path_segments(&conn, child_id).unwrap();
         assert_eq!(segs, vec!["Pop".to_string(), "Songs".to_string()]);
+    }
+
+    #[test]
+    fn list_sheets_filtered_matches_tag_substring() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = Connection::open_in_memory().unwrap();
+        init_schema(&conn).unwrap();
+        migrate(&conn, dir.path()).unwrap();
+        let row = SheetRow {
+            id: "s1".into(),
+            display_title: "A".into(),
+            kind: "text".into(),
+            local_rel_path: "library/content/x.txt".into(),
+            local_content_hash: "h".into(),
+            remote_path: None,
+            remote_blob_sha: None,
+            last_local_modified_at: Utc::now().to_rfc3339(),
+            last_synced_at: None,
+            folder_id: None,
+            artist: None,
+        };
+        insert_sheet(&conn, &row).unwrap();
+        replace_sheet_tags(&conn, "s1", &[String::from("Classic Rock")]).unwrap();
+        let hit = list_sheets_filtered(&conn, None, None, Some("rock")).unwrap();
+        assert_eq!(hit.len(), 1);
+        assert_eq!(hit[0].id, "s1");
+        let miss = list_sheets_filtered(&conn, None, None, Some("jazz")).unwrap();
+        assert!(miss.is_empty());
     }
 
     #[test]

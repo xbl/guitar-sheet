@@ -8,6 +8,7 @@ export interface SheetMeta {
   remote_path: string | null;
   folder_id: string | null;
   artist: string | null;
+  tags: string[];
 }
 
 export interface ConflictEntry {

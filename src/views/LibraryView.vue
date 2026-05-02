@@ -13,7 +13,11 @@ const conflicts = ref<ConflictEntry[]>([]);
 async function refresh() {
   error.value = null;
   try {
-    sheets.value = await invoke<SheetMeta[]>("list_sheets", { query: null });
+    sheets.value = await invoke<SheetMeta[]>("list_sheets", {
+      query: null,
+      folderId: null,
+      tagSubstring: null,
+    });
   } catch (e) {
     error.value = String(e);
   }

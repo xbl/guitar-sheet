@@ -21,9 +21,10 @@ pub struct SheetMeta {
     pub remote_path: Option<String>,
     pub folder_id: Option<String>,
     pub artist: Option<String>,
+    pub tags: Vec<String>,
 }
 
-fn to_meta(paths: &crate::paths::AppPaths, row: SheetRow) -> SheetMeta {
+fn to_meta(paths: &crate::paths::AppPaths, row: SheetRow, tags: Vec<String>) -> SheetMeta {
     let absolute_path = paths.data_dir.join(&row.local_rel_path);
     SheetMeta {
         id: row.id,
@@ -35,6 +36,7 @@ fn to_meta(paths: &crate::paths::AppPaths, row: SheetRow) -> SheetMeta {
         remote_path: row.remote_path,
         folder_id: row.folder_id,
         artist: row.artist,
+        tags,
     }
 }
 
@@ -147,18 +149,37 @@ pub fn import_sheet(
         .lock()
         .map_err(|_| "database lock poisoned".to_string())?;
     db::insert_sheet(&conn, &row).map_err(|e| e.to_string())?;
-    Ok(to_meta(paths, row))
+    Ok(to_meta(paths, row, vec![]))
 }
 
 #[tauri::command]
-pub fn list_sheets(state: State<'_, AppState>, query: Option<String>) -> Result<Vec<SheetMeta>, String> {
+pub fn list_sheets(
+    state: State<'_, AppState>,
+    query: Option<String>,
+    folder_id: Option<String>,
+    tag_substring: Option<String>,
+) -> Result<Vec<SheetMeta>, String> {
     let paths = &state.paths;
     let conn = state
         .conn
         .lock()
         .map_err(|_| "database lock poisoned".to_string())?;
-    let rows = db::list_sheets(&conn, query.as_deref()).map_err(|e| e.to_string())?;
-    Ok(rows.into_iter().map(|r| to_meta(paths, r)).collect())
+    let rows = db::list_sheets_filtered(
+        &conn,
+        query.as_deref(),
+        folder_id.as_deref(),
+        tag_substring.as_deref(),
+    )
+    .map_err(|e| e.to_string())?;
+    let ids: Vec<String> = rows.iter().map(|r| r.id.clone()).collect();
+    let tag_map = db::tags_for_sheet_ids(&conn, &ids).map_err(|e| e.to_string())?;
+    Ok(rows
+        .into_iter()
+        .map(|r| {
+            let tags = tag_map.get(&r.id).cloned().unwrap_or_default();
+            to_meta(paths, r, tags)
+        })
+        .collect())
 }
 
 #[tauri::command]
@@ -171,7 +192,11 @@ pub fn get_sheet(state: State<'_, AppState>, id: String) -> Result<SheetMeta, St
     let row = db::get_sheet(&conn, &id)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| AppError::BadInput(format!("no sheet with id {id}")).to_string())?;
-    Ok(to_meta(paths, row))
+    let tags = db::tags_for_sheet_ids(&conn, &[id.clone()])
+        .map_err(|e| e.to_string())?
+        .remove(&id)
+        .unwrap_or_default();
+    Ok(to_meta(paths, row, tags))
 }
 
 #[tauri::command]

@@ -45,6 +45,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::folders::create_folder,
             commands::folders::list_folder_tree,
+            commands::tags::set_sheet_tags,
+            commands::tags::list_all_tags,
             commands::sheets::import_sheet,
             commands::sheets::list_sheets,
             commands::sheets::get_sheet,
