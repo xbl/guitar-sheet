@@ -7,7 +7,8 @@ import { readFile, readTextFile } from "@tauri-apps/plugin-fs"
 import * as pdfjsLib from "pdfjs-dist"
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url"
 import type { SheetMeta } from "../types/sheet"
-import PracticeToolbar from "./practice/PracticeToolbar.vue"
+import ChordSheetRenderer from "./chords/ChordSheetRenderer.vue"
+import { looksLikeChordSheet } from "../chords/parseChordSheet"
 import { useAutoScroll } from "../composables/useAutoScroll"
 import { useMetronome } from "../composables/useMetronome"
 import {
@@ -659,7 +660,14 @@ onUnmounted(() => {
             :style="{ fontSize: fontPx + 'px', lineHeight: String(lineHeight) }"
           >
             <template v-for="(seg, i) in textPreviewSegments" :key="i">
-              <pre v-if="seg.type === 'text'" class="text-chunk">{{ seg.content }}</pre>
+              <ChordSheetRenderer
+                v-if="seg.type === 'text' && looksLikeChordSheet(seg.content)"
+                :source="seg.content"
+              />
+              <pre
+                v-else-if="seg.type === 'text'"
+                class="text-chunk"
+              >{{ seg.content }}</pre>
               <figure v-else class="inline-img-wrap">
                 <img
                   v-if="previewUrls[seg.file]"
