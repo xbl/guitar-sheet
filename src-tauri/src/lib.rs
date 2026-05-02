@@ -32,6 +32,8 @@ pub fn run() {
                 .map_err(|e| -> Box<dyn std::error::Error> { Box::new(e) })?;
             db::init_schema(&conn)
                 .map_err(|e| -> Box<dyn std::error::Error> { Box::new(e) })?;
+            db::migrate(&conn, &paths.data_dir)
+                .map_err(|e| -> Box<dyn std::error::Error> { Box::new(e) })?;
             app.manage(state::AppState {
                 conn: Mutex::new(conn),
                 paths,

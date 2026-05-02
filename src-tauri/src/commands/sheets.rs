@@ -70,7 +70,7 @@ pub fn import_sheet(
         .to_string();
 
     let id = Uuid::new_v4().to_string();
-    let dest_dir = paths.library_dir.join(&id);
+    let dest_dir = paths.library_dir.join("content").join(&id);
     std::fs::create_dir_all(&dest_dir).map_err(|e| e.to_string())?;
     let dest = dest_dir.join(&file_name);
     std::fs::copy(src, &dest).map_err(|e| e.to_string())?;
@@ -82,7 +82,7 @@ pub fn import_sheet(
     let prefix = gh.normalized_prefix();
     let remote_path = format!("{}{}{}", prefix, id, ext_for_remote);
 
-    let local_rel_path = format!("library/{}/{}", id, file_name);
+    let local_rel_path = format!("library/content/{}/{}", id, file_name);
 
     let stem = src
         .file_stem()
@@ -155,7 +155,14 @@ pub fn delete_sheet(state: State<'_, AppState>, id: String) -> Result<(), String
         .ok_or_else(|| AppError::BadInput(format!("no sheet with id {id}")).to_string())?;
 
     let parts: Vec<&str> = row.local_rel_path.split('/').collect();
-    if parts.len() >= 2 && parts[0] == "library" {
+    if parts.len() >= 4 && parts[0] == "library" && parts[1] == "content" {
+        let dir = paths
+            .data_dir
+            .join("library")
+            .join("content")
+            .join(parts[2]);
+        let _ = std::fs::remove_dir_all(&dir);
+    } else if parts.len() >= 2 && parts[0] == "library" {
         let dir = paths.data_dir.join("library").join(parts[1]);
         let _ = std::fs::remove_dir_all(&dir);
     }

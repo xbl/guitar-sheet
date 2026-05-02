@@ -1,7 +1,12 @@
+use std::path::Path;
+
 use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::error::{AppError, AppResult};
+
+/// Bump when `migrate` gains new steps; keep in sync with SQL in `migrate_to_v2`.
+pub const SCHEMA_VERSION: i32 = 2;
 
 const SCHEMA_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS sheets (
@@ -20,6 +25,117 @@ CREATE INDEX IF NOT EXISTS idx_sheets_display_title ON sheets(display_title);
 
 pub fn init_schema(conn: &Connection) -> AppResult<()> {
     conn.execute_batch(SCHEMA_SQL)?;
+    Ok(())
+}
+
+/// Applies incremental migrations after `init_schema`. Safe to call on every startup.
+pub fn migrate(conn: &Connection, data_dir: &Path) -> AppResult<()> {
+    let v: i32 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    if v >= SCHEMA_VERSION {
+        return Ok(());
+    }
+    if v < 2 {
+        migrate_to_v2(conn, data_dir)?;
+    }
+    conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
+    Ok(())
+}
+
+fn migrate_to_v2(conn: &Connection, data_dir: &Path) -> AppResult<()> {
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS folders (
+          id TEXT PRIMARY KEY,
+          parent_id TEXT REFERENCES folders(id) ON DELETE CASCADE,
+          name TEXT NOT NULL,
+          created_at TEXT NOT NULL
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_folders_parent_name
+          ON folders (COALESCE(parent_id, ''), name);
+
+        CREATE INDEX IF NOT EXISTS idx_folders_parent ON folders(parent_id);
+
+        CREATE TABLE IF NOT EXISTS tags (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL UNIQUE
+        );
+
+        CREATE TABLE IF NOT EXISTS sheet_tags (
+          sheet_id TEXT NOT NULL REFERENCES sheets(id) ON DELETE CASCADE,
+          tag_id TEXT NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+          PRIMARY KEY (sheet_id, tag_id)
+        );
+        "#,
+    )?;
+
+    add_column_if_missing(conn, "sheets", "folder_id", "TEXT")?;
+    add_column_if_missing(conn, "sheets", "artist", "TEXT")?;
+
+    migrate_legacy_library_paths(conn, data_dir)?;
+    Ok(())
+}
+
+fn add_column_if_missing(
+    conn: &Connection,
+    table: &str,
+    column: &str,
+    decl: &str,
+) -> AppResult<()> {
+    let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
+    let exists = stmt
+        .query_map([], |row| row.get::<_, String>(1))?
+        .filter_map(|r| r.ok())
+        .any(|name| name == column);
+    if !exists {
+        conn.execute(
+            &format!("ALTER TABLE {table} ADD COLUMN {column} {decl}"),
+            [],
+        )?;
+    }
+    Ok(())
+}
+
+/// Moves `library/<sheet_id>/<file>` → `library/content/<sheet_id>/<file>` and updates rows.
+fn migrate_legacy_library_paths(conn: &Connection, data_dir: &Path) -> AppResult<()> {
+    let rows: Vec<(String, String)> = {
+        let mut stmt = conn.prepare("SELECT id, local_rel_path FROM sheets")?;
+        let mapped = stmt.query_map([], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })?;
+        mapped.collect::<Result<Vec<_>, _>>()?
+    };
+    for (id, rel) in rows {
+        if rel.starts_with("library/content/") {
+            continue;
+        }
+        let parts: Vec<&str> = rel.split('/').collect();
+        if parts.len() < 3 || parts[0] != "library" {
+            continue;
+        }
+        let folder = parts[1];
+        if folder == "content" {
+            continue;
+        }
+        let file_suffix = parts[2..].join("/");
+        if folder != id {
+            continue;
+        }
+        let new_rel = format!("library/content/{id}/{file_suffix}");
+        let old_abs = data_dir.join(&rel);
+        let new_abs = data_dir.join(&new_rel);
+        if old_abs.exists() {
+            if let Some(parent) = new_abs.parent() {
+                std::fs::create_dir_all(parent).map_err(AppError::Io)?;
+            }
+            std::fs::rename(&old_abs, &new_abs).map_err(AppError::Io)?;
+        } else if !new_abs.exists() {
+            continue;
+        }
+        conn.execute(
+            "UPDATE sheets SET local_rel_path = ?1 WHERE id = ?2",
+            params![new_rel, id],
+        )?;
+    }
     Ok(())
 }
 
@@ -170,7 +286,7 @@ mod tests {
             id: "id1".into(),
             display_title: "Test".into(),
             kind: "text".into(),
-            local_rel_path: "library/id1/content.txt".into(),
+            local_rel_path: "library/content/id1/content.txt".into(),
             local_content_hash: "abc".into(),
             remote_path: Some("sheets/id1.txt".into()),
             remote_blob_sha: None,
@@ -183,5 +299,66 @@ mod tests {
         assert_eq!(all[0].id, "id1");
         let found = list_sheets(&conn, Some("Te")).unwrap();
         assert_eq!(found.len(), 1);
+    }
+
+    #[test]
+    fn migration_v2_sets_user_version_and_creates_folders_table() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("test.sqlite3");
+        let conn = Connection::open(&db_path).unwrap();
+        init_schema(&conn).unwrap();
+        migrate(&conn, dir.path()).unwrap();
+        let v: i32 = conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(v, 2);
+        let n: i32 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='folders'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(n, 1);
+        migrate(&conn, dir.path()).unwrap();
+        let v2: i32 = conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(v2, 2);
+    }
+
+    #[test]
+    fn migration_moves_legacy_paths_under_content() {
+        let dir = tempfile::tempdir().unwrap();
+        let data = dir.path();
+        let id = "11111111-2222-3333-4444-555555555555";
+        let rel = format!("library/{id}/content.txt");
+        std::fs::create_dir_all(data.join("library").join(id)).unwrap();
+        std::fs::write(data.join(&rel), b"e|0|0").unwrap();
+
+        let db_path = data.join("index.sqlite3");
+        let conn = Connection::open(&db_path).unwrap();
+        init_schema(&conn).unwrap();
+        let row = SheetRow {
+            id: id.into(),
+            display_title: "T".into(),
+            kind: "text".into(),
+            local_rel_path: rel,
+            local_content_hash: "abc".into(),
+            remote_path: None,
+            remote_blob_sha: None,
+            last_local_modified_at: Utc::now().to_rfc3339(),
+            last_synced_at: None,
+        };
+        insert_sheet(&conn, &row).unwrap();
+        migrate(&conn, data).unwrap();
+
+        let new_path = data.join("library/content").join(id).join("content.txt");
+        assert!(new_path.is_file());
+        let got = get_sheet(&conn, id).unwrap().expect("row");
+        assert_eq!(
+            got.local_rel_path,
+            format!("library/content/{id}/content.txt")
+        );
     }
 }
