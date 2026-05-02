@@ -69,7 +69,7 @@ const titleDraft = ref("")
 const chordPrefs = useReaderChordPrefs()
 provide(readerChordPrefsInjectionKey, chordPrefs)
 const fontPx = ref(ZOOM_FONT_PX[chordPrefs.zoomLevel as 0 | 1 | 2])
-const lineHeight = ref(1.6)
+const TEXT_LINE_HEIGHT = 1.6
 
 watch(
   () => chordPrefs.zoomLevel,
@@ -628,13 +628,7 @@ onUnmounted(() => {
           {{ editingText ? "退出编辑" : "编辑正文" }}
         </button>
       </div>
-      <details v-if="meta?.kind === 'text'" class="reader-overflow-narrow">
-        <summary class="overflow-sum" title="行距">⋯</summary>
-        <div class="overflow-panel">
-          <label>行距 <input v-model.number="lineHeight" type="range" min="1.2" max="2.4" step="0.05" /></label>
-        </div>
-      </details>
-      <details v-else-if="meta?.kind === 'pdf'" class="reader-overflow-narrow">
+      <details v-if="meta?.kind === 'pdf'" class="reader-overflow-narrow">
         <summary class="overflow-sum" title="翻页">⋯</summary>
         <div class="overflow-panel overflow-panel-row">
           <button type="button" :disabled="pdfPage <= 1" @click="prevPdf">上一页</button>
@@ -670,9 +664,6 @@ onUnmounted(() => {
         <section v-if="meta.kind === 'text'" class="text-wrap">
           <div class="text-sheet-layout">
             <div class="text-sheet-main">
-              <div class="controls">
-                <label>行距 <input v-model.number="lineHeight" type="range" min="1.2" max="2.4" step="0.05" /></label>
-              </div>
               <p v-if="editingText" class="paste-hint">
                 提示：Ctrl+V 可粘贴图片；失焦或点「退出编辑」自动保存正文（空白不保存）。若使用「和弦在上、歌词在下」的文本排版，退出编辑时会自动转为
                 <code>[和弦]</code> 内嵌格式。
@@ -682,14 +673,14 @@ onUnmounted(() => {
                 ref="textAreaRef"
                 v-model="textDraft"
                 class="tab edit"
-                :style="{ fontSize: fontPx + 'px', lineHeight: String(lineHeight) }"
+                :style="{ fontSize: fontPx + 'px', lineHeight: String(TEXT_LINE_HEIGHT) }"
                 @paste="onTextPaste"
                 @blur="onTextBlur"
               />
               <div
                 v-else
                 class="tab text-preview"
-                :style="{ fontSize: fontPx + 'px', lineHeight: String(lineHeight) }"
+                :style="{ fontSize: fontPx + 'px', lineHeight: String(TEXT_LINE_HEIGHT) }"
               >
                 <template v-for="(seg, i) in textPreviewSegments" :key="i">
                   <ChordSheetRenderer
@@ -810,9 +801,6 @@ onUnmounted(() => {
 @container reader (max-width: 36rem) {
   .reader-overflow-narrow {
     display: block;
-  }
-  .text-wrap .controls {
-    display: none;
   }
   .pdf-wrap .pdf-controls {
     display: none;
@@ -937,13 +925,6 @@ onUnmounted(() => {
     width: 100%;
     border-radius: 0 0 var(--gs-radius-md) var(--gs-radius-md);
   }
-}
-.controls {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 1rem;
-  margin-bottom: 0.75rem;
-  font-size: 0.9rem;
 }
 .paste-hint {
   margin: 0 0 0.5rem;
