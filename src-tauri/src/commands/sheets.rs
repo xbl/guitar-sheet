@@ -6,6 +6,7 @@ use uuid::Uuid;
 use crate::db::{self, SheetRow};
 use crate::error::AppError;
 use crate::hash;
+use crate::library_paths;
 use crate::settings;
 use crate::state::AppState;
 
@@ -70,7 +71,7 @@ pub fn import_sheet(
         .to_string();
 
     let id = Uuid::new_v4().to_string();
-    let dest_dir = paths.library_dir.join("content").join(&id);
+    let dest_dir = library_paths::content_root(&paths.library_dir).join(&id);
     std::fs::create_dir_all(&dest_dir).map_err(|e| e.to_string())?;
     let dest = dest_dir.join(&file_name);
     std::fs::copy(src, &dest).map_err(|e| e.to_string())?;
@@ -82,7 +83,7 @@ pub fn import_sheet(
     let prefix = gh.normalized_prefix();
     let remote_path = format!("{}{}{}", prefix, id, ext_for_remote);
 
-    let local_rel_path = format!("library/content/{}/{}", id, file_name);
+    let local_rel_path = library_paths::rel_path_content_file(&format!("{id}/{file_name}"));
 
     let stem = src
         .file_stem()
