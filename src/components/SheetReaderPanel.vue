@@ -1,5 +1,13 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue"
+import {
+  computed,
+  nextTick,
+  onMounted,
+  onUnmounted,
+  provide,
+  ref,
+  watch,
+} from "vue"
 import { useRouter } from "vue-router"
 import { invoke } from "@tauri-apps/api/core"
 import { convertFileSrc } from "@tauri-apps/api/core"
@@ -8,17 +16,24 @@ import * as pdfjsLib from "pdfjs-dist"
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url"
 import type { SheetMeta } from "../types/sheet"
 import ChordSheetRenderer from "./chords/ChordSheetRenderer.vue"
+import ReaderChordSettingsPanel from "./ReaderChordSettingsPanel.vue"
 import {
   convertAsciiChordSheetToChordPro,
   shouldConvertAsciiToChordPro,
 } from "../chords/convertAsciiChordSheet"
 import { looksLikeChordSheet } from "../chords/parseChordSheet"
+import {
+  readerChordPrefsInjectionKey,
+  useReaderChordPrefs,
+  ZOOM_FONT_PX,
+} from "../chords/readerPrefs"
 import { useAutoScroll } from "../composables/useAutoScroll"
 import { useMetronome } from "../composables/useMetronome"
 import {
   loadPracticePreferences,
   savePracticePreferences,
 } from "../practice/practicePreferences"
+import PracticeToolbar from "./practice/PracticeToolbar.vue"
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 
@@ -51,8 +66,17 @@ const editingText = ref(false)
 const titleEditing = ref(false)
 const titleDraft = ref("")
 
-const fontPx = ref(16)
+const chordPrefs = useReaderChordPrefs()
+provide(readerChordPrefsInjectionKey, chordPrefs)
+const fontPx = ref(ZOOM_FONT_PX[chordPrefs.zoomLevel as 0 | 1 | 2])
 const lineHeight = ref(1.6)
+
+watch(
+  () => chordPrefs.zoomLevel,
+  (z) => {
+    fontPx.value = ZOOM_FONT_PX[z as 0 | 1 | 2]
+  },
+)
 const imgSrc = ref("")
 const textAreaRef = ref<HTMLTextAreaElement | null>(null)
 const titleInputRef = ref<HTMLInputElement | null>(null)
@@ -605,9 +629,8 @@ onUnmounted(() => {
         </button>
       </div>
       <details v-if="meta?.kind === 'text'" class="reader-overflow-narrow">
-        <summary class="overflow-sum" title="字号与行距">⋯</summary>
+        <summary class="overflow-sum" title="行距">⋯</summary>
         <div class="overflow-panel">
-          <label>字号 <input v-model.number="fontPx" type="range" min="12" max="32" /></label>
           <label>行距 <input v-model.number="lineHeight" type="range" min="1.2" max="2.4" step="0.05" /></label>
         </div>
       </details>
@@ -645,47 +668,55 @@ onUnmounted(() => {
 
       <template v-else-if="meta">
         <section v-if="meta.kind === 'text'" class="text-wrap">
-          <div class="controls">
-            <label>字号 <input v-model.number="fontPx" type="range" min="12" max="32" /></label>
-            <label>行距 <input v-model.number="lineHeight" type="range" min="1.2" max="2.4" step="0.05" /></label>
-          </div>
-          <p v-if="editingText" class="paste-hint">
-            提示：Ctrl+V 可粘贴图片；失焦或点「退出编辑」自动保存正文（空白不保存）。若使用「和弦在上、歌词在下」的文本排版，退出编辑时会自动转为
-            <code>[和弦]</code> 内嵌格式。
-          </p>
-          <textarea
-            v-if="editingText"
-            ref="textAreaRef"
-            v-model="textDraft"
-            class="tab edit"
-            :style="{ fontSize: fontPx + 'px', lineHeight: String(lineHeight) }"
-            @paste="onTextPaste"
-            @blur="onTextBlur"
-          />
-          <div
-            v-else
-            class="tab text-preview"
-            :style="{ fontSize: fontPx + 'px', lineHeight: String(lineHeight) }"
-          >
-            <template v-for="(seg, i) in textPreviewSegments" :key="i">
-              <ChordSheetRenderer
-                v-if="seg.type === 'text' && looksLikeChordSheet(seg.content)"
-                :source="seg.content"
+          <div class="text-sheet-layout">
+            <div class="text-sheet-main">
+              <div class="controls">
+                <label>行距 <input v-model.number="lineHeight" type="range" min="1.2" max="2.4" step="0.05" /></label>
+              </div>
+              <p v-if="editingText" class="paste-hint">
+                提示：Ctrl+V 可粘贴图片；失焦或点「退出编辑」自动保存正文（空白不保存）。若使用「和弦在上、歌词在下」的文本排版，退出编辑时会自动转为
+                <code>[和弦]</code> 内嵌格式。
+              </p>
+              <textarea
+                v-if="editingText"
+                ref="textAreaRef"
+                v-model="textDraft"
+                class="tab edit"
+                :style="{ fontSize: fontPx + 'px', lineHeight: String(lineHeight) }"
+                @paste="onTextPaste"
+                @blur="onTextBlur"
               />
-              <pre
-                v-else-if="seg.type === 'text'"
-                class="text-chunk"
-              >{{ seg.content }}</pre>
-              <figure v-else class="inline-img-wrap">
-                <img
-                  v-if="previewUrls[seg.file]"
-                  :src="previewUrls[seg.file]"
-                  :alt="seg.file"
-                  class="inline-img"
-                />
-                <p v-else class="img-missing">（无法加载图片：{{ seg.file }}）</p>
-              </figure>
-            </template>
+              <div
+                v-else
+                class="tab text-preview"
+                :style="{ fontSize: fontPx + 'px', lineHeight: String(lineHeight) }"
+              >
+                <template v-for="(seg, i) in textPreviewSegments" :key="i">
+                  <ChordSheetRenderer
+                    v-if="seg.type === 'text' && looksLikeChordSheet(seg.content)"
+                    :source="seg.content"
+                    :transpose-semitones="chordPrefs.transposeSemitones"
+                    :simplify-chords="chordPrefs.simplifyChords"
+                    :chord-style="chordPrefs.chordStyle"
+                    :parallel-display="chordPrefs.parallelDisplay"
+                  />
+                  <pre
+                    v-else-if="seg.type === 'text'"
+                    class="text-chunk"
+                  >{{ seg.content }}</pre>
+                  <figure v-else class="inline-img-wrap">
+                    <img
+                      v-if="previewUrls[seg.file]"
+                      :src="previewUrls[seg.file]"
+                      :alt="seg.file"
+                      class="inline-img"
+                    />
+                    <p v-else class="img-missing">（无法加载图片：{{ seg.file }}）</p>
+                  </figure>
+                </template>
+              </div>
+            </div>
+            <ReaderChordSettingsPanel v-if="!editingText" />
           </div>
         </section>
 
@@ -881,6 +912,31 @@ onUnmounted(() => {
   padding: 0.75rem 1rem 1rem;
   flex: 1 1 auto;
   min-height: min-content;
+}
+.text-sheet-layout {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  align-items: stretch;
+  gap: 0;
+}
+.text-sheet-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+@container reader (max-width: 36rem) {
+  .text-sheet-layout {
+    flex-direction: column;
+  }
+  .text-sheet-layout :deep(.reader-settings) {
+    border-left: none;
+    border-top: 1px solid var(--gs-border);
+    width: 100%;
+    border-radius: 0 0 var(--gs-radius-md) var(--gs-radius-md);
+  }
 }
 .controls {
   display: flex;

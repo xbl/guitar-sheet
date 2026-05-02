@@ -2,18 +2,41 @@
 import { computed } from "vue"
 import ChordDiagramSvg from "./ChordDiagramSvg.vue"
 import { parseChordSheet, type ParsedSheetLine } from "../../chords/parseChordSheet"
+import { simplifyChordSymbol } from "../../chords/simplifyChord"
+import { transposeChordSymbol } from "../../chords/transposeChord"
 
-const props = defineProps<{
-  source: string
-}>()
+const props = withDefaults(
+  defineProps<{
+    source: string
+    transposeSemitones?: number
+    simplifyChords?: boolean
+    chordStyle?: "diagram" | "text"
+    parallelDisplay?: boolean
+  }>(),
+  {
+    transposeSemitones: 0,
+    simplifyChords: false,
+    chordStyle: "diagram",
+    parallelDisplay: false,
+  },
+)
 
 const parsedLines = computed<ParsedSheetLine[]>(() =>
   parseChordSheet(props.source),
 )
+
+function displayChord(raw: string): string {
+  let s = raw
+  if (props.simplifyChords) s = simplifyChordSymbol(s)
+  return transposeChordSymbol(s, props.transposeSemitones)
+}
 </script>
 
 <template>
-  <div class="chord-sheet">
+  <div
+    class="chord-sheet"
+    :class="{ 'chord-sheet--parallel': parallelDisplay }"
+  >
     <template v-for="(line, li) in parsedLines" :key="li">
       <div v-if="line.kind === 'section'" class="section-bar">
         {{ line.title }}
@@ -27,7 +50,14 @@ const parsedLines = computed<ParsedSheetLine[]>(() =>
             :key="'c' + ci"
             class="chord-cell"
           >
-            <ChordDiagramSvg v-if="cell.chord" :name="cell.chord" />
+            <ChordDiagramSvg
+              v-if="cell.chord && chordStyle === 'diagram'"
+              :name="displayChord(cell.chord)"
+            />
+            <span
+              v-else-if="cell.chord && chordStyle === 'text'"
+              class="chord-text"
+            >{{ displayChord(cell.chord) }}</span>
             <div v-else class="chord-empty" />
           </div>
         </div>
@@ -49,6 +79,16 @@ const parsedLines = computed<ParsedSheetLine[]>(() =>
   font-size: inherit;
   color: var(--gs-text);
   line-height: 1.55;
+}
+.chord-sheet--parallel {
+  column-count: 2;
+  column-gap: 1.25rem;
+}
+.chord-sheet--parallel .section-bar,
+.chord-sheet--parallel .plain-line,
+.chord-sheet--parallel .lyric-block,
+.chord-sheet--parallel .sheet-gap {
+  break-inside: avoid;
 }
 .section-bar {
   margin: 1rem 0 0.6rem;
@@ -86,7 +126,6 @@ const parsedLines = computed<ParsedSheetLine[]>(() =>
 }
 .chord-row {
   margin-bottom: 0.08em;
-  /* Room for scaled SVG + label; tracks parent font-size */
   min-height: 4.35em;
 }
 .chord-cell {
@@ -94,6 +133,14 @@ const parsedLines = computed<ParsedSheetLine[]>(() =>
   min-width: 2.85em;
   display: flex;
   justify-content: center;
+  align-items: flex-end;
+}
+.chord-text {
+  font-size: 0.82em;
+  font-weight: 700;
+  color: var(--gs-chord, var(--gs-danger));
+  line-height: 1.1;
+  padding-bottom: 0.15em;
 }
 .chord-empty {
   min-width: 2.85em;
