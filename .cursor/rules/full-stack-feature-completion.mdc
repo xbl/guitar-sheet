@@ -1,0 +1,25 @@
+---
+description: Feature work counts complete only when both client and server are implemented
+alwaysApply: true
+---
+
+# Full-stack feature completion
+
+When implementing or extending a **feature** (not pure docs or config-only changes), treat the work as **incomplete** until both sides below are done, unless the project explicitly scoped the task to a single layer.
+
+## Definition of done
+
+- **Client (Tauri / web UI)**: user-visible behavior, commands, state, and error handling for the feature are wired and testable in the app.
+- **Server (Rust backend / commands / persistence)**: APIs, commands, or data paths the feature needs exist and are used by the client; no “UI-only stub” that leaves the backend missing or TODO.
+
+## What to avoid
+
+- Marking a task “done” after only adding UI with mocked data or unimplemented `invoke` / API calls.
+- Marking a task “done” after only adding Rust or backend logic with no app surface to trigger or display it.
+
+## Legitimate exceptions
+
+- The user or spec **explicitly** limits scope to one layer (e.g. “backend only for this PR”).
+- The change is **not** a product feature (docs, tests without behavior, pure refactor, CI).
+
+If only one end is in place, state clearly what remains (e.g. “UI done; still need Rust command + DB”) and do not claim the feature is finished.

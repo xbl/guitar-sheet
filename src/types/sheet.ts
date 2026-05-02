@@ -1,3 +1,6 @@
+/** Backend filter for sheets only under library root (no `folder_id`). */
+export const FOLDER_ROOT_SENTINEL = "__root__"
+
 export interface SheetMeta {
   id: string;
   display_title: string;

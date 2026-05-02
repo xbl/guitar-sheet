@@ -316,8 +316,144 @@ pub fn update_display_title(conn: &Connection, id: &str, title: &str) -> AppResu
     Ok(())
 }
 
+/// After a local file write (e.g. text tab edit), update hash and modified time; leaves sync fields unchanged.
+pub fn update_sheet_local_hash_and_modified(
+    conn: &Connection,
+    id: &str,
+    local_hash: &str,
+) -> AppResult<()> {
+    let now = Utc::now().to_rfc3339();
+    let n = conn.execute(
+        "UPDATE sheets SET local_content_hash = ?2, last_local_modified_at = ?3 WHERE id = ?1",
+        params![id, local_hash, now],
+    )?;
+    if n == 0 {
+        return Err(AppError::BadInput(format!("no sheet with id {id}")));
+    }
+    Ok(())
+}
+
 pub fn delete_sheet(conn: &Connection, id: &str) -> AppResult<()> {
     conn.execute("DELETE FROM sheets WHERE id = ?1", params![id])?;
+    Ok(())
+}
+
+/// Updates folder assignment and stored paths for a sheet (e.g. after moving the file on disk).
+pub fn update_sheet_folder_paths(
+    conn: &Connection,
+    id: &str,
+    folder_id: Option<&str>,
+    local_rel_path: &str,
+    remote_path: Option<&str>,
+) -> AppResult<()> {
+    let n = conn.execute(
+        "UPDATE sheets SET folder_id = ?2, local_rel_path = ?3, remote_path = ?4 WHERE id = ?1",
+        params![id, folder_id, local_rel_path, remote_path],
+    )?;
+    if n == 0 {
+        return Err(AppError::BadInput(format!("no sheet with id {id}")));
+    }
+    Ok(())
+}
+
+/// Updates only on-disk path columns (same logical folder row); used when a parent folder is moved on disk.
+pub fn update_sheet_storage_paths(
+    conn: &Connection,
+    id: &str,
+    local_rel_path: &str,
+    remote_path: Option<&str>,
+) -> AppResult<()> {
+    let n = conn.execute(
+        "UPDATE sheets SET local_rel_path = ?2, remote_path = ?3 WHERE id = ?1",
+        params![id, local_rel_path, remote_path],
+    )?;
+    if n == 0 {
+        return Err(AppError::BadInput(format!("no sheet with id {id}")));
+    }
+    Ok(())
+}
+
+/// Prefix match for `library/content/...` paths without LIKE meta-char issues (`%`, `_`).
+fn row_matches_local_path_prefix(local_rel_path: &str, prefix: &str) -> bool {
+    if local_rel_path == prefix {
+        return true;
+    }
+    let pl = prefix.len();
+    if local_rel_path.len() <= pl {
+        return false;
+    }
+    local_rel_path.get(..pl) == Some(prefix)
+        && local_rel_path.as_bytes().get(pl).copied() == Some(b'/')
+}
+
+/// All sheets whose stored path lies under the folder tree rooted at `path_prefix`
+/// (`library/content/a/b` — files directly in that folder or in subfolders).
+pub fn list_sheets_under_local_prefix(conn: &Connection, path_prefix: &str) -> AppResult<Vec<SheetRow>> {
+    let mut stmt = conn.prepare(
+        r#"SELECT id, display_title, kind, local_rel_path, local_content_hash,
+                  remote_path, remote_blob_sha, last_local_modified_at, last_synced_at,
+                  folder_id, artist
+           FROM sheets"#,
+    )?;
+    let rows = stmt.query_map([], row_from_stmt)?;
+    let mut out = Vec::new();
+    for r in rows {
+        let row = r?;
+        if row_matches_local_path_prefix(&row.local_rel_path, path_prefix) {
+            out.push(row);
+        }
+    }
+    Ok(out)
+}
+
+pub fn folder_descendant_ids_including_self(
+    conn: &Connection,
+    root_id: &str,
+) -> AppResult<Vec<String>> {
+    let mut out = vec![root_id.to_string()];
+    let mut queue = vec![root_id.to_string()];
+    while let Some(fid) = queue.pop() {
+        let mut stmt = conn.prepare("SELECT id FROM folders WHERE parent_id = ?1")?;
+        let children: Vec<String> = stmt
+            .query_map(params![fid], |r| r.get(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        for c in children {
+            out.push(c.clone());
+            queue.push(c);
+        }
+    }
+    Ok(out)
+}
+
+/// Whether `folder_id` already exists under `parent_id` (root = `None`), excluding `except_id`.
+pub fn folder_name_exists_under_parent(
+    conn: &Connection,
+    parent_id: Option<&str>,
+    name: &str,
+    except_id: &str,
+) -> AppResult<bool> {
+    let mut stmt = conn.prepare(
+        "SELECT 1 FROM folders WHERE COALESCE(parent_id, '') = COALESCE(?1, '') \
+         AND name = ?2 AND id != ?3 LIMIT 1",
+    )?;
+    let found: Option<i32> = stmt
+        .query_row(params![parent_id, name, except_id], |r| r.get(0))
+        .optional()?;
+    Ok(found.is_some())
+}
+
+pub fn update_folder_parent(
+    conn: &Connection,
+    folder_id: &str,
+    new_parent_id: Option<&str>,
+) -> AppResult<()> {
+    let n = conn.execute(
+        "UPDATE folders SET parent_id = ?2 WHERE id = ?1",
+        params![folder_id, new_parent_id],
+    )?;
+    if n == 0 {
+        return Err(AppError::BadInput(format!("no folder with id {folder_id}")));
+    }
     Ok(())
 }
 

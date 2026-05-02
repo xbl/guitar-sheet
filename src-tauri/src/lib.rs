@@ -45,6 +45,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::folders::create_folder,
             commands::folders::list_folder_tree,
+            commands::folders::move_folder,
             commands::tags::set_sheet_tags,
             commands::tags::list_all_tags,
             commands::sheets::import_sheet,
@@ -52,6 +53,7 @@ pub fn run() {
             commands::sheets::get_sheet,
             commands::sheets::rename_sheet_title,
             commands::sheets::delete_sheet,
+            commands::sheets::save_text_sheet,
             commands::github_settings::get_github_settings,
             commands::github_settings::set_github_settings,
             commands::github_settings::set_github_pat,

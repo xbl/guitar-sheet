@@ -24,6 +24,15 @@ pub struct SheetMeta {
     pub tags: Vec<String>,
 }
 
+fn remote_path_for_local_rel(
+    paths: &crate::paths::AppPaths,
+    local_rel: &str,
+) -> Result<Option<String>, String> {
+    let gh = settings::load(paths).map_err(|e| e.to_string())?;
+    let suffix = library_paths::strip_content_prefix(local_rel);
+    Ok(Some(format!("{}{}", gh.normalized_prefix(), suffix)))
+}
+
 fn to_meta(paths: &crate::paths::AppPaths, row: SheetRow, tags: Vec<String>) -> SheetMeta {
     let absolute_path = paths.data_dir.join(&row.local_rel_path);
     SheetMeta {
@@ -227,4 +236,136 @@ pub fn delete_sheet(state: State<'_, AppState>, id: String) -> Result<(), String
     }
 
     db::delete_sheet(&conn, &id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn move_sheet(
+    state: State<'_, AppState>,
+    sheet_id: String,
+    target_folder_id: Option<String>,
+) -> Result<SheetMeta, String> {
+    let paths = &state.paths;
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
+
+    if let Some(ref fid) = target_folder_id {
+        if db::get_folder(&conn, fid)
+            .map_err(|e| e.to_string())?
+            .is_none()
+        {
+            return Err(format!("folder not found: {fid}"));
+        }
+    }
+
+    let mut row = db::get_sheet(&conn, &sheet_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| AppError::BadInput(format!("no sheet with id {sheet_id}")).to_string())?;
+
+    let same_folder = match (&row.folder_id, &target_folder_id) {
+        (None, None) => true,
+        (Some(a), Some(b)) => a == b,
+        _ => false,
+    };
+
+    let segments: Vec<String> = match &target_folder_id {
+        Some(fid) => db::folder_path_segments(&conn, fid).map_err(|e| e.to_string())?,
+        None => Vec::new(),
+    };
+
+    let file_name = Path::new(&row.local_rel_path)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .ok_or_else(|| AppError::BadInput("invalid sheet path".into()).to_string())?;
+
+    let rel_under = if segments.is_empty() {
+        file_name.to_string()
+    } else {
+        format!("{}/{}", segments.join("/"), file_name)
+    };
+    let new_local_rel = library_paths::rel_path_content_file(&rel_under);
+
+    if same_folder && new_local_rel == row.local_rel_path {
+        let tags = db::tags_for_sheet_ids(&conn, &[sheet_id.clone()])
+            .map_err(|e| e.to_string())?
+            .remove(&sheet_id)
+            .unwrap_or_default();
+        return Ok(to_meta(paths, row, tags));
+    }
+
+    let old_abs = paths.data_dir.join(&row.local_rel_path);
+    let new_abs = paths.data_dir.join(&new_local_rel);
+    if new_abs != old_abs && new_abs.exists() {
+        return Err("A file already exists at the destination.".into());
+    }
+
+    if let Some(parent) = new_abs.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+
+    if old_abs != new_abs {
+        std::fs::rename(&old_abs, &new_abs).map_err(|e| e.to_string())?;
+    }
+
+    let new_remote = remote_path_for_local_rel(paths, &new_local_rel)?;
+
+    let update_result = db::update_sheet_folder_paths(
+        &conn,
+        &sheet_id,
+        target_folder_id.as_deref(),
+        &new_local_rel,
+        new_remote.as_deref(),
+    );
+
+    if let Err(e) = update_result {
+        if old_abs != new_abs {
+            let _ = std::fs::rename(&new_abs, &old_abs);
+        }
+        return Err(e.to_string());
+    }
+
+    row.folder_id = target_folder_id;
+    row.local_rel_path = new_local_rel;
+    row.remote_path = new_remote;
+
+    let tags = db::tags_for_sheet_ids(&conn, &[sheet_id.clone()])
+        .map_err(|e| e.to_string())?
+        .remove(&sheet_id)
+        .unwrap_or_default();
+    Ok(to_meta(paths, row, tags))
+}
+
+#[tauri::command]
+pub fn save_text_sheet(
+    state: State<'_, AppState>,
+    id: String,
+    content: String,
+) -> Result<SheetMeta, String> {
+    let paths = &state.paths;
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
+    let row = db::get_sheet(&conn, &id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| AppError::BadInput(format!("no sheet with id {id}")).to_string())?;
+    if row.kind != "text" {
+        return Err("Only text sheets can be saved this way.".into());
+    }
+    let abs = paths.data_dir.join(&row.local_rel_path);
+    if let Some(parent) = abs.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(&abs, content.as_bytes()).map_err(|e| e.to_string())?;
+    let hash = hash::sha256_file(&abs).map_err(|e| e.to_string())?;
+    db::update_sheet_local_hash_and_modified(&conn, &id, &hash).map_err(|e| e.to_string())?;
+    let row = db::get_sheet(&conn, &id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "sheet missing after save".to_string())?;
+    let tags = db::tags_for_sheet_ids(&conn, &[id.clone()])
+        .map_err(|e| e.to_string())?
+        .remove(&id)
+        .unwrap_or_default();
+    Ok(to_meta(paths, row, tags))
 }
