@@ -55,6 +55,7 @@ pub fn run() {
             commands::sheets::get_sheet,
             commands::sheets::rename_sheet_title,
             commands::sheets::delete_sheet,
+            commands::sheets::move_sheet,
             commands::sheets::save_text_sheet,
             commands::sheets::save_sheet_clipboard_image,
             commands::github_settings::get_github_settings,

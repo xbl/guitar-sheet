@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue"
+import { computed, onMounted, onUnmounted, ref, watch } from "vue"
 import { invoke } from "@tauri-apps/api/core"
 import { open } from "@tauri-apps/plugin-dialog"
 import LibrarySheetTree from "../components/LibrarySheetTree.vue"
@@ -7,6 +7,8 @@ import SheetReaderPanel from "../components/SheetReaderPanel.vue"
 import type { FolderNode } from "../types/folder"
 import { buildLibraryTree, type LibraryTreeRow } from "../utils/libraryTree"
 import type { ConflictEntry, SheetMeta, SyncOutcome } from "../types/sheet"
+import type { TreeDndPayload } from "../utils/treeDnD"
+import { readTreeDragPayload } from "../utils/treeDnD"
 
 const sheets = ref<SheetMeta[]>([])
 const folderTree = ref<FolderNode[]>([])
@@ -24,6 +26,8 @@ const conflicts = ref<ConflictEntry[]>([])
 
 const searchQuery = ref("")
 const newFolderName = ref("")
+/** `true` = 文件夹折叠（隐藏子项） */
+const collapsedFolders = ref<Record<string, boolean>>({})
 
 const creatingSheet = ref(false)
 /** 新建曲谱：与子组件约定 id，载入完成后自动进入正文编辑 */
@@ -32,6 +36,73 @@ const pendingTextEditSheetId = ref<string | null>(null)
 const createFolderParentId = computed(() => contextFolderId.value)
 
 const importTargetFolderId = computed(() => contextFolderId.value)
+
+/** 拖放高亮：文件夹 id */
+const highlightDropFolderId = ref<string | null>(null)
+const highlightDropRoot = ref(false)
+/** 谱库拖放后强制重载阅读区（路径变化） */
+const readerReloadNonce = ref(0)
+
+function clearDropHighlight() {
+  highlightDropFolderId.value = null
+  highlightDropRoot.value = false
+}
+
+function onFolderDropHover(id: string | null) {
+  highlightDropFolderId.value = id
+  highlightDropRoot.value = false
+}
+
+function onRootDragOver(e: DragEvent) {
+  e.preventDefault()
+  highlightDropFolderId.value = null
+  highlightDropRoot.value = true
+}
+
+async function onRootDrop(e: DragEvent) {
+  const drag = readTreeDragPayload(e)
+  clearDropHighlight()
+  if (!drag) return
+  error.value = null
+  try {
+    if (drag.kind === "sheet") {
+      await invoke("move_sheet", { sheetId: drag.id, targetFolderId: null })
+    } else {
+      await invoke("move_folder", { folderId: drag.id, newParentId: null })
+    }
+    await refresh()
+    readerReloadNonce.value++
+  } catch (err) {
+    error.value = String(err)
+  }
+}
+
+async function onTreeMoveDrop(payload: {
+  target: { kind: "folder"; folderId: string }
+  drag: TreeDndPayload
+}) {
+  clearDropHighlight()
+  const { target, drag } = payload
+  error.value = null
+  try {
+    if (drag.kind === "sheet") {
+      await invoke("move_sheet", {
+        sheetId: drag.id,
+        targetFolderId: target.folderId,
+      })
+    } else {
+      if (drag.id === target.folderId) return
+      await invoke("move_folder", {
+        folderId: drag.id,
+        newParentId: target.folderId,
+      })
+    }
+    await refresh()
+    readerReloadNonce.value++
+  } catch (err) {
+    error.value = String(err)
+  }
+}
 
 async function loadTree() {
   try {
@@ -58,6 +129,16 @@ async function refreshList() {
 async function refresh() {
   await loadTree()
   await refreshList()
+}
+
+function onSheetTitleRenamed(payload: { id: string; title: string }) {
+  const idx = sheets.value.findIndex((s) => s.id === payload.id)
+  if (idx >= 0) {
+    sheets.value[idx] = {
+      ...sheets.value[idx],
+      display_title: payload.title,
+    }
+  }
 }
 
 function onSheetDeleted(id: string) {
@@ -178,6 +259,14 @@ function onPendingTextEditConsumed() {
   pendingTextEditSheetId.value = null
 }
 
+function toggleFolderCollapse(id: string) {
+  const cur = collapsedFolders.value[id] ?? false
+  collapsedFolders.value = {
+    ...collapsedFolders.value,
+    [id]: !cur,
+  }
+}
+
 watch(selectedSheetId, (id) => {
   if (pendingTextEditSheetId.value !== null && id !== pendingTextEditSheetId.value) {
     pendingTextEditSheetId.value = null
@@ -186,6 +275,11 @@ watch(selectedSheetId, (id) => {
 
 onMounted(() => {
   void refresh()
+  document.addEventListener("dragend", clearDropHighlight)
+})
+
+onUnmounted(() => {
+  document.removeEventListener("dragend", clearDropHighlight)
 })
 </script>
 
@@ -193,6 +287,16 @@ onMounted(() => {
   <div class="layout">
     <aside class="sidebar">
       <h2 class="side-title">谱库</h2>
+      <label class="sidebar-search">
+        <span class="sidebar-search-label">搜索</span>
+        <input
+          v-model="searchQuery"
+          type="search"
+          placeholder="标题 / 路径 / 标签…"
+          enterkeyhint="search"
+          @input="onSearchInput"
+        />
+      </label>
       <div class="ctx-row">
         <span class="ctx-label">目标文件夹</span>
         <button
@@ -205,16 +309,30 @@ onMounted(() => {
         </button>
       </div>
       <p class="hint small">
-        点击文件夹名：在此下新建 / 导入 / <strong>新建曲谱</strong>；点击曲谱：右侧打开。
+        点击文件夹名：在此下新建 / 导入 / <strong>新建曲谱</strong>；点击曲谱：右侧打开。可将曲谱或文件夹<strong>拖到文件夹名上</strong>以移入。
       </p>
+      <div
+        class="tree-drop-root"
+        :class="{ 'is-target': highlightDropRoot }"
+        @dragover="onRootDragOver"
+        @drop.prevent="onRootDrop"
+      >
+        拖到此处 → 移至谱库根目录（移出文件夹）
+      </div>
       <div class="tree-scroll">
         <template v-if="libraryRows.length">
           <LibrarySheetTree
+            :is-root="true"
             :rows="libraryRows"
             :selected-sheet-id="selectedSheetId"
             :context-folder-id="contextFolderId"
+            :collapsed-folders="collapsedFolders"
+            :highlight-drop-folder-id="highlightDropFolderId"
             @select-sheet="selectedSheetId = $event"
             @select-folder="contextFolderId = $event"
+            @toggle-folder-collapse="toggleFolderCollapse"
+            @folder-drop-hover="onFolderDropHover"
+            @move-drop="onTreeMoveDrop"
           />
         </template>
         <p v-else class="muted small">暂无文件夹与曲谱。可先导入或创建文件夹。</p>
@@ -235,15 +353,6 @@ onMounted(() => {
     <main class="main">
       <header class="toolbar">
         <div class="actions">
-          <label class="search">
-            搜索
-            <input
-              v-model="searchQuery"
-              type="search"
-              placeholder="标题 / 路径 / 标签…"
-              @input="onSearchInput"
-            />
-          </label>
           <button type="button" :disabled="creatingSheet" @click="createNewSheet">
             {{ creatingSheet ? "创建中…" : "新建曲谱" }}
           </button>
@@ -269,9 +378,11 @@ onMounted(() => {
         <SheetReaderPanel
           :sheet-id="selectedSheetId"
           :pending-text-edit-for-sheet-id="pendingTextEditSheetId"
+          :reload-nonce="readerReloadNonce"
           variant="embed"
           @deleted="onSheetDeleted"
           @pending-text-edit-consumed="onPendingTextEditConsumed"
+          @title-renamed="onSheetTitleRenamed"
         />
       </div>
 
@@ -317,6 +428,28 @@ onMounted(() => {
   font-weight: 700;
   color: var(--gs-text);
 }
+.sidebar-search {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-bottom: 0.55rem;
+}
+.sidebar-search-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--gs-text-muted);
+  letter-spacing: 0.03em;
+}
+.sidebar-search input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.4rem 0.5rem;
+  font-size: 0.85rem;
+  border: 1px solid var(--gs-border);
+  border-radius: var(--gs-radius-sm);
+  background: var(--gs-bg-surface);
+  color: var(--gs-text);
+}
 .ctx-row {
   display: flex;
   align-items: center;
@@ -341,12 +474,32 @@ onMounted(() => {
   background: var(--gs-primary-bg);
   font-weight: 600;
 }
+.tree-drop-root {
+  flex-shrink: 0;
+  margin-bottom: 0.45rem;
+  padding: 0.45rem 0.5rem;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  color: var(--gs-text-muted);
+  border: 1px dashed var(--gs-border);
+  border-radius: var(--gs-radius-sm);
+  background: var(--gs-bg-surface);
+}
+.tree-drop-root.is-target {
+  border-color: var(--gs-primary-border);
+  color: var(--gs-link);
+  background: var(--gs-primary-bg);
+}
 .tree-scroll {
   flex: 1;
   overflow: auto;
   min-height: 8rem;
   margin: 0.5rem 0;
+  padding: 0.35rem 0.25rem;
   padding-right: 0.15rem;
+  border-radius: var(--gs-radius-md);
+  border: 1px solid var(--gs-border);
+  background: var(--gs-bg-surface);
 }
 .hint {
   margin: 0;
@@ -443,21 +596,6 @@ onMounted(() => {
   .toolbar-more-narrow {
     display: block;
   }
-}
-.search {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-  font-size: 0.9rem;
-  color: var(--gs-text);
-}
-.search input {
-  width: 10rem;
-  padding: 0.3rem 0.45rem;
-  border: 1px solid var(--gs-border);
-  border-radius: var(--gs-radius-sm);
-  font: inherit;
-  background: var(--gs-bg-surface);
 }
 .actions button.primary {
   font-weight: 600;

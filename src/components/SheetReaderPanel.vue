@@ -46,13 +46,19 @@ const props = withDefaults(
      * 处理后会触发 `pendingTextEditConsumed` 以便父级清空。
      */
     pendingTextEditForSheetId?: string | null
+    /**
+     * Parent increments after谱库树拖放移动（同 sheetId 时磁盘路径会变）。
+     */
+    reloadNonce?: number
   }>(),
-  { variant: "embed", pendingTextEditForSheetId: null },
+  { variant: "embed", pendingTextEditForSheetId: null, reloadNonce: 0 },
 )
 
 const emit = defineEmits<{
   deleted: [id: string]
   pendingTextEditConsumed: []
+  /** 标题已在后端更新；父级应同步谱库列表中的 display_title */
+  titleRenamed: [{ id: string; title: string }]
 }>()
 
 const router = useRouter()
@@ -402,6 +408,7 @@ async function commitTitleEdit() {
   try {
     await invoke("rename_sheet_title", { id: props.sheetId, title: t })
     meta.value = { ...meta.value, display_title: t }
+    emit("titleRenamed", { id: props.sheetId, title: t })
     titleEditing.value = false
   } catch (e) {
     error.value = String(e)
@@ -557,6 +564,13 @@ watch(
   () => {
     practicePlaying.value = false
     void load()
+  },
+)
+
+watch(
+  () => props.reloadNonce,
+  () => {
+    if (props.sheetId) void load()
   },
 )
 
