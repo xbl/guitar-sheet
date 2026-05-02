@@ -1,3 +1,6 @@
+mod error;
+mod paths;
+
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -10,6 +13,11 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
+        .setup(|app| {
+            paths::AppPaths::resolve(app.handle())
+                .and_then(|p| p.ensure_dirs())?;
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![greet])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
