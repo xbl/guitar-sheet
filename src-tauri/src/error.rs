@@ -19,6 +19,8 @@ pub enum AppError {
     Keyring(String),
 }
 
+/// Structured error payload for the frontend when commands adopt a uniform shape.
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize)]
 pub struct UserFacingError {
     pub code: &'static str,
