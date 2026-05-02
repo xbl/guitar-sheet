@@ -875,6 +875,8 @@ git commit -m "feat(practice): wire toolbar and reader shell with auto-scroll"
 
 **类型一致性：** `scrollLevel`、`bpm`、`metronomeMuted` 在 `PracticePreferences` 与 `ReaderView` 中同名；`useMetronome` / `useAutoScroll` 共用 `isPlaying`。
 
+**后续（非本计划范围）：** 语音/哼唱定位并驱动滚谱见 [练习模式规格 §8](../specs/2026-05-02-practice-auto-scroll-design.md)（需未来独立计划与专项规格）。
+
 ---
 
 ### Execution handoff
