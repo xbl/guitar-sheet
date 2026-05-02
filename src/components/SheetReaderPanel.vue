@@ -8,6 +8,10 @@ import * as pdfjsLib from "pdfjs-dist"
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url"
 import type { SheetMeta } from "../types/sheet"
 import ChordSheetRenderer from "./chords/ChordSheetRenderer.vue"
+import {
+  convertAsciiChordSheetToChordPro,
+  shouldConvertAsciiToChordPro,
+} from "../chords/convertAsciiChordSheet"
 import { looksLikeChordSheet } from "../chords/parseChordSheet"
 import { useAutoScroll } from "../composables/useAutoScroll"
 import { useMetronome } from "../composables/useMetronome"
@@ -395,6 +399,9 @@ async function commitTextEdit() {
     editingText.value = false
     return
   }
+  if (shouldConvertAsciiToChordPro(textDraft.value)) {
+    textDraft.value = convertAsciiChordSheetToChordPro(textDraft.value)
+  }
   if (textDraft.value !== textBaseline.value) {
     await saveTextBody()
   }
@@ -643,7 +650,8 @@ onUnmounted(() => {
             <label>行距 <input v-model.number="lineHeight" type="range" min="1.2" max="2.4" step="0.05" /></label>
           </div>
           <p v-if="editingText" class="paste-hint">
-            提示：Ctrl+V 可粘贴图片；失焦或点「退出编辑」自动保存正文（空白不保存）。
+            提示：Ctrl+V 可粘贴图片；失焦或点「退出编辑」自动保存正文（空白不保存）。若使用「和弦在上、歌词在下」的文本排版，退出编辑时会自动转为
+            <code>[和弦]</code> 内嵌格式。
           </p>
           <textarea
             v-if="editingText"
