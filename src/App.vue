@@ -8,7 +8,9 @@ import { RouterLink, RouterView } from "vue-router";
       <RouterLink to="/" class="brand">Guitar Sheet</RouterLink>
       <RouterLink to="/settings">设置</RouterLink>
     </nav>
-    <RouterView />
+    <div class="shell-content">
+      <RouterView />
+    </div>
   </div>
 </template>
 
@@ -16,8 +18,13 @@ import { RouterLink, RouterView } from "vue-router";
 * {
   box-sizing: border-box;
 }
+html,
 body {
+  height: 100%;
   margin: 0;
+  overflow: hidden;
+}
+body {
   font-family:
     system-ui,
     -apple-system,
@@ -26,7 +33,19 @@ body {
   background: #fff;
 }
 #shell {
-  min-height: 100vh;
+  height: 100dvh;
+  max-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.shell-content {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 .nav {
   display: flex;
@@ -35,6 +54,7 @@ body {
   padding: 0.5rem 1rem;
   border-bottom: 1px solid #e8e8e8;
   background: #fafafa;
+  flex-shrink: 0;
 }
 .nav a {
   color: #2563eb;

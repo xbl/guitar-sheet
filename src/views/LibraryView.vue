@@ -217,11 +217,13 @@ onMounted(() => {
       <p v-if="error" class="err">{{ error }}</p>
       <p v-if="syncMsg" class="ok">{{ syncMsg }}</p>
 
-      <SheetReaderPanel
-        :sheet-id="selectedSheetId"
-        variant="embed"
-        @deleted="onSheetDeleted"
-      />
+      <div class="reader-host">
+        <SheetReaderPanel
+          :sheet-id="selectedSheetId"
+          variant="embed"
+          @deleted="onSheetDeleted"
+        />
+      </div>
 
       <section v-if="conflicts.length" class="conflicts">
         <h2>冲突</h2>
@@ -242,7 +244,10 @@ onMounted(() => {
 <style scoped>
 .layout {
   display: flex;
-  min-height: calc(100vh - 42px);
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  overflow: hidden;
   align-items: stretch;
 }
 .sidebar {
@@ -254,6 +259,7 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  overflow: hidden;
 }
 .side-title {
   margin: 0 0 0.35rem;
@@ -325,9 +331,17 @@ onMounted(() => {
 .main {
   flex: 1;
   min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+}
+.reader-host {
+  flex: 1;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 .toolbar {
   flex-shrink: 0;
@@ -380,8 +394,11 @@ onMounted(() => {
 }
 .conflicts {
   flex-shrink: 0;
-  padding: 0 1rem 2rem;
-  max-width: 48rem;
+  max-height: min(32vh, 20rem);
+  overflow-y: auto;
+  padding: 0.5rem 0.75rem 1rem;
+  border-top: 1px solid #eee;
+  background: #fafafa;
 }
 .card {
   border: 1px solid #ddd;

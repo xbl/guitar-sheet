@@ -304,44 +304,46 @@ onUnmounted(() => {
       </div>
     </header>
 
-    <p v-if="error" class="err">{{ error }}</p>
+    <div class="reader-body">
+      <p v-if="error" class="err">{{ error }}</p>
 
-    <div v-else-if="!sheetId" class="empty">
-      <p>在左侧树中选择一首曲谱，内容将显示在这里。</p>
+      <div v-else-if="!sheetId" class="empty">
+        <p>在左侧树中选择一首曲谱，内容将显示在这里。</p>
+      </div>
+
+      <template v-else-if="meta">
+        <section v-if="meta.kind === 'text'" class="text-wrap">
+          <div class="controls">
+            <label>字号 <input v-model.number="fontPx" type="range" min="12" max="32" /></label>
+            <label>行距 <input v-model.number="lineHeight" type="range" min="1.2" max="2.4" step="0.05" /></label>
+          </div>
+          <textarea
+            v-if="editingText"
+            v-model="textDraft"
+            class="tab edit"
+            :style="{ fontSize: fontPx + 'px', lineHeight: String(lineHeight) }"
+          />
+          <pre
+            v-else
+            class="tab"
+            :style="{ fontSize: fontPx + 'px', lineHeight: String(lineHeight) }"
+          >{{ textBody }}</pre>
+        </section>
+
+        <section v-else-if="meta.kind === 'image'" class="img-wrap">
+          <img v-if="imgSrc" :src="imgSrc" alt="sheet" />
+        </section>
+
+        <section v-else-if="meta.kind === 'pdf'" class="pdf-wrap">
+          <div class="pdf-controls">
+            <button type="button" :disabled="pdfPage <= 1" @click="prevPdf">上一页</button>
+            <span>{{ pdfPage }} / {{ pdfTotal || "…" }}</span>
+            <button type="button" :disabled="!pdfDoc || pdfPage >= pdfTotal" @click="nextPdf">下一页</button>
+          </div>
+          <canvas ref="canvasEl" class="pdf-canvas" />
+        </section>
+      </template>
     </div>
-
-    <template v-else-if="meta">
-      <section v-if="meta.kind === 'text'" class="text-wrap">
-        <div class="controls">
-          <label>字号 <input v-model.number="fontPx" type="range" min="12" max="32" /></label>
-          <label>行距 <input v-model.number="lineHeight" type="range" min="1.2" max="2.4" step="0.05" /></label>
-        </div>
-        <textarea
-          v-if="editingText"
-          v-model="textDraft"
-          class="tab edit"
-          :style="{ fontSize: fontPx + 'px', lineHeight: String(lineHeight) }"
-        />
-        <pre
-          v-else
-          class="tab"
-          :style="{ fontSize: fontPx + 'px', lineHeight: String(lineHeight) }"
-        >{{ textBody }}</pre>
-      </section>
-
-      <section v-else-if="meta.kind === 'image'" class="img-wrap">
-        <img v-if="imgSrc" :src="imgSrc" alt="sheet" />
-      </section>
-
-      <section v-else-if="meta.kind === 'pdf'" class="pdf-wrap">
-        <div class="pdf-controls">
-          <button type="button" :disabled="pdfPage <= 1" @click="prevPdf">上一页</button>
-          <span>{{ pdfPage }} / {{ pdfTotal || "…" }}</span>
-          <button type="button" :disabled="!pdfDoc || pdfPage >= pdfTotal" @click="nextPdf">下一页</button>
-        </div>
-        <canvas ref="canvasEl" class="pdf-canvas" />
-      </section>
-    </template>
   </div>
 </template>
 
@@ -351,16 +353,17 @@ onUnmounted(() => {
   flex-direction: column;
   min-height: 0;
   flex: 1;
+  overflow: hidden;
 }
 .reader.page {
-  min-height: 100vh;
+  height: 100%;
+  min-height: 0;
 }
 .reader.embed .bar {
-  position: sticky;
-  top: 0;
-  z-index: 2;
+  flex-shrink: 0;
 }
 .bar {
+  flex-shrink: 0;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -428,6 +431,14 @@ onUnmounted(() => {
   color: #2563eb;
   font-size: 1rem;
 }
+.reader-body {
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
 .err {
   color: #b00020;
   padding: 1rem;
@@ -443,9 +454,8 @@ onUnmounted(() => {
 }
 .text-wrap {
   padding: 0.75rem 1rem 1rem;
-  flex: 1;
-  overflow: auto;
-  min-height: 0;
+  flex: 1 1 auto;
+  min-height: min-content;
 }
 .controls {
   display: flex;
@@ -473,23 +483,21 @@ onUnmounted(() => {
   line-height: inherit;
 }
 .img-wrap {
-  flex: 1;
+  flex: 1 1 auto;
   padding: 1rem;
   display: flex;
   justify-content: center;
   align-items: flex-start;
-  overflow: auto;
-  min-height: 0;
+  min-height: min-content;
 }
 .img-wrap img {
   max-width: 100%;
   height: auto;
 }
 .pdf-wrap {
-  flex: 1;
+  flex: 1 1 auto;
   padding: 1rem;
-  overflow: auto;
-  min-height: 0;
+  min-height: min-content;
 }
 .pdf-controls {
   display: flex;

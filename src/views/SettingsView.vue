@@ -130,8 +130,12 @@ onMounted(() => {
 
 <style scoped>
 .page {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   max-width: 36rem;
   margin: 0 auto;
+  width: 100%;
   padding: 1rem 1.25rem 2rem;
 }
 .head {
