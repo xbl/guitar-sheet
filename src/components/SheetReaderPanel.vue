@@ -2,9 +2,9 @@
 import {
   computed,
   nextTick,
-  onMounted,
   onUnmounted,
   provide,
+  reactive,
   ref,
   watch,
 } from "vue"
@@ -24,16 +24,18 @@ import {
 } from "../chords/convertAsciiChordSheet"
 import { looksLikeChordSheet } from "../chords/parseChordSheet"
 import {
+  normalizeReaderChordPrefs,
   readerChordPrefsInjectionKey,
-  useReaderChordPrefs,
   ZOOM_FONT_PX,
 } from "../chords/readerPrefs"
+import {
+  loadSheetReaderStoredState,
+  saveSheetReaderStoredState,
+} from "../chords/sheetReaderState"
+import type { SheetReaderStoredState } from "../chords/sheetReaderState"
 import { useAutoScroll } from "../composables/useAutoScroll"
 import { useMetronome } from "../composables/useMetronome"
-import {
-  loadPracticePreferences,
-  savePracticePreferences,
-} from "../practice/practicePreferences"
+import { normalizePracticePreferences } from "../practice/practicePreferences"
 import { confirmTwice } from "../utils/confirmTwice"
 import { showToast } from "../utils/toast"
 
@@ -72,7 +74,7 @@ const editingText = ref(false)
 const titleEditing = ref(false)
 const titleDraft = ref("")
 
-const chordPrefs = useReaderChordPrefs()
+const chordPrefs = reactive(normalizeReaderChordPrefs(undefined))
 provide(readerChordPrefsInjectionKey, chordPrefs)
 const fontPx = ref(ZOOM_FONT_PX[chordPrefs.zoomLevel as 0 | 1 | 2])
 const TEXT_LINE_HEIGHT = 1.6
@@ -94,27 +96,103 @@ const practiceMetronomeMuted = ref(false)
 const practiceAudioWarning = ref("")
 /** Revoked when switching sheets or unmount; separate from imgSrc string when using blob URLs. */
 let imageBlobUrl: string | null = null
+const readerSettingsOpen = ref(false)
+const readerSettingsSlotRef = ref<HTMLElement | null>(null)
+let readerSettingsDismiss: ((e: MouseEvent) => void) | null = null
 
-onMounted(() => {
-  const p = loadPracticePreferences()
-  practiceBpm.value = p.bpm
-  practiceScrollLevel.value = p.scrollLevel
-  practiceMetronomeMuted.value = p.metronomeMuted
-})
+function onReaderSettingsEscape(e: KeyboardEvent) {
+  if (e.key === "Escape") readerSettingsOpen.value = false
+}
 
-watch(
-  [practiceBpm, practiceScrollLevel, practiceMetronomeMuted],
-  () => {
-    savePracticePreferences(localStorage, {
+function collectSheetReaderState(): SheetReaderStoredState {
+  return {
+    chord: { ...chordPrefs },
+    practice: {
       bpm: practiceBpm.value,
       scrollLevel: practiceScrollLevel.value,
       metronomeMuted: practiceMetronomeMuted.value,
-    })
+    },
+  }
+}
+
+function persistCurrentSheetReader() {
+  if (props.sheetId) {
+    saveSheetReaderStoredState(
+      localStorage,
+      props.sheetId,
+      collectSheetReaderState(),
+    )
+  }
+}
+
+function applySheetReaderState(s: SheetReaderStoredState) {
+  Object.assign(chordPrefs, s.chord)
+  practiceBpm.value = s.practice.bpm
+  practiceScrollLevel.value = s.practice.scrollLevel
+  practiceMetronomeMuted.value = s.practice.metronomeMuted
+}
+
+function resetReaderStateToDefaults() {
+  Object.assign(chordPrefs, normalizeReaderChordPrefs(undefined))
+  const d = normalizePracticePreferences(undefined)
+  practiceBpm.value = d.bpm
+  practiceScrollLevel.value = d.scrollLevel
+  practiceMetronomeMuted.value = d.metronomeMuted
+}
+
+watch(
+  () => props.sheetId,
+  (newId, oldId) => {
+    if (oldId) {
+      saveSheetReaderStoredState(localStorage, oldId, collectSheetReaderState())
+    }
+    readerSettingsOpen.value = false
+    if (newId) {
+      applySheetReaderState(loadSheetReaderStoredState(localStorage, newId))
+    } else {
+      resetReaderStateToDefaults()
+    }
   },
+  { immediate: true },
 )
 
+watch(
+  chordPrefs,
+  () => {
+    persistCurrentSheetReader()
+  },
+  { deep: true },
+)
+
+watch([practiceBpm, practiceScrollLevel, practiceMetronomeMuted], () => {
+  persistCurrentSheetReader()
+})
+
+watch(readerSettingsOpen, (open) => {
+  if (open) {
+    void nextTick(() => {
+      const fn = (e: MouseEvent) => {
+        const el = readerSettingsSlotRef.value
+        if (el && !el.contains(e.target as Node)) readerSettingsOpen.value = false
+      }
+      readerSettingsDismiss = fn
+      document.addEventListener("mousedown", fn, true)
+      document.addEventListener("keydown", onReaderSettingsEscape)
+    })
+  } else {
+    document.removeEventListener("keydown", onReaderSettingsEscape)
+    if (readerSettingsDismiss) {
+      document.removeEventListener("mousedown", readerSettingsDismiss, true)
+      readerSettingsDismiss = null
+    }
+  }
+})
+
 watch(editingText, (ed) => {
-  if (ed) practicePlaying.value = false
+  if (ed) {
+    practicePlaying.value = false
+    readerSettingsOpen.value = false
+  }
 })
 
 /** 未命名且正文为空：切换左侧树其他项时由父级删除该谱 */
@@ -585,6 +663,17 @@ watch(
 )
 
 onUnmounted(() => {
+  if (props.sheetId) {
+    saveSheetReaderStoredState(
+      localStorage,
+      props.sheetId,
+      collectSheetReaderState(),
+    )
+  }
+  document.removeEventListener("keydown", onReaderSettingsEscape)
+  if (readerSettingsDismiss) {
+    document.removeEventListener("mousedown", readerSettingsDismiss, true)
+  }
   revokePreviewBlobUrls()
   revokeImageBlobUrl()
 })
@@ -650,8 +739,12 @@ onUnmounted(() => {
       </details>
     </header>
 
-    <div ref="readerBodyRef" class="reader-body">
-      <div v-if="meta" class="practice-strip">
+    <div class="reader-body">
+      <div
+        v-if="meta"
+        class="practice-strip"
+        :class="{ 'practice-strip--with-settings': meta.kind === 'text' }"
+      >
         <PracticeToolbar
           :is-playing="practicePlaying"
           :bpm="practiceBpm"
@@ -664,18 +757,42 @@ onUnmounted(() => {
           @update:scroll-level="setPracticeScrollLevel"
           @update:metronome-muted="setPracticeMetronomeMuted"
         />
+        <div
+          v-if="meta.kind === 'text' && !editingText"
+          ref="readerSettingsSlotRef"
+          class="reader-settings-slot"
+        >
+          <button
+            type="button"
+            class="reader-settings-toggle"
+            :aria-expanded="readerSettingsOpen"
+            aria-controls="reader-chord-settings-panel"
+            @click="readerSettingsOpen = !readerSettingsOpen"
+          >
+            谱面设置
+          </button>
+          <div
+            v-show="readerSettingsOpen"
+            id="reader-chord-settings-panel"
+            class="reader-settings-popover"
+            role="region"
+            aria-label="谱面设置"
+          >
+            <ReaderChordSettingsPanel />
+          </div>
+        </div>
       </div>
 
-      <p v-if="error" class="err">{{ error }}</p>
+      <div ref="readerBodyRef" class="reader-scroll">
+        <p v-if="error" class="err">{{ error }}</p>
 
-      <div v-else-if="!sheetId" class="empty">
-        <p>在左侧树中选择一首曲谱，内容将显示在这里。</p>
-      </div>
+        <div v-else-if="!sheetId" class="empty">
+          <p>在左侧树中选择一首曲谱，内容将显示在这里。</p>
+        </div>
 
-      <template v-else-if="meta">
+        <template v-else-if="meta">
         <section v-if="meta.kind === 'text'" class="text-wrap">
-          <div class="text-sheet-layout">
-            <div class="text-sheet-main">
+          <div class="text-sheet-main">
               <p v-if="editingText" class="paste-hint">
                 提示：Ctrl+V 可粘贴图片；失焦自动保存正文（空白不保存）。若使用「和弦在上、歌词在下」的文本排版，退出编辑时会自动转为
                 <code>[和弦]</code> 内嵌格式。
@@ -724,8 +841,6 @@ onUnmounted(() => {
                 </template>
               </div>
             </div>
-            <ReaderChordSettingsPanel v-if="!editingText" />
-          </div>
         </section>
 
         <section v-else-if="meta.kind === 'image'" class="img-wrap">
@@ -740,7 +855,8 @@ onUnmounted(() => {
           </div>
           <canvas ref="canvasEl" class="pdf-canvas" />
         </section>
-      </template>
+        </template>
+      </div>
     </div>
   </div>
 </template>
@@ -896,12 +1012,68 @@ onUnmounted(() => {
   position: sticky;
   top: 0;
   z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 0.5rem 0.75rem;
   padding: 0.5rem 0.75rem;
   border-bottom: 1px solid var(--gs-border);
   background: var(--gs-bg-muted);
   box-shadow: 0 1px 0 color-mix(in srgb, var(--gs-border) 40%, transparent);
 }
+.practice-strip--with-settings {
+  justify-content: space-between;
+}
+.practice-strip :deep(.practice-toolbar) {
+  flex: 1;
+  min-width: min(100%, 12rem);
+}
+.reader-settings-slot {
+  position: relative;
+  flex-shrink: 0;
+  align-self: center;
+}
+.reader-settings-toggle {
+  cursor: pointer;
+  padding: 0.35rem 0.65rem;
+  border-radius: var(--gs-radius-sm);
+  border: 1px solid var(--gs-border);
+  background: var(--gs-bg-surface);
+  color: var(--gs-text);
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+.reader-settings-toggle:hover {
+  border-color: var(--gs-primary-border);
+  color: var(--gs-link);
+}
+.reader-settings-popover {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  right: 0;
+  z-index: 6;
+  min-width: min(13.5rem, calc(100vw - 2rem));
+  max-width: min(22rem, calc(100vw - 2rem));
+  border-radius: var(--gs-radius-md);
+  border: 1px solid var(--gs-border);
+  background: var(--gs-bg-muted);
+  box-shadow: var(--gs-shadow-sm);
+}
+.reader-settings-popover :deep(.reader-settings) {
+  width: auto;
+  min-width: 0;
+  border-left: none;
+  border-radius: var(--gs-radius-md);
+}
 .reader-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.reader-scroll {
   flex: 1;
   min-height: 0;
   overflow-x: hidden;
@@ -926,13 +1098,8 @@ onUnmounted(() => {
   padding: 0.75rem 1rem 1rem;
   flex: 1 1 auto;
   min-height: 0;
-}
-.text-sheet-layout {
   display: flex;
-  flex: 1;
-  min-height: 0;
-  align-items: stretch;
-  gap: 0;
+  flex-direction: column;
 }
 .text-sheet-main {
   flex: 1;
@@ -940,17 +1107,6 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   min-height: 0;
-}
-@container reader (max-width: 36rem) {
-  .text-sheet-layout {
-    flex-direction: column;
-  }
-  .text-sheet-layout :deep(.reader-settings) {
-    border-left: none;
-    border-top: 1px solid var(--gs-border);
-    width: 100%;
-    border-radius: 0 0 var(--gs-radius-md) var(--gs-radius-md);
-  }
 }
 .paste-hint {
   margin: 0 0 0.5rem;

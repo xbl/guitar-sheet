@@ -20,30 +20,51 @@ function clampBpm(raw: number): number {
   return Math.min(BPM_MAX, Math.max(BPM_MIN, r))
 }
 
+function parseMetronomeMuted(v: unknown): boolean | undefined {
+  if (v === "1" || v === "true" || v === true || v === 1) return true
+  if (v === "0" || v === "false" || v === false || v === 0) return false
+  return undefined
+}
+
+/** Merge partial values (e.g. parsed JSON) into clamped prefs. */
+export function normalizePracticePreferences(
+  j: Partial<PracticePreferences> | null | undefined,
+): PracticePreferences {
+  const bpm =
+    typeof j?.bpm === "number" && Number.isFinite(j.bpm)
+      ? clampBpm(j.bpm)
+      : BPM_DEFAULT
+  const scrollLevel =
+    typeof j?.scrollLevel === "number" && Number.isFinite(j.scrollLevel)
+      ? clampScrollLevel(Math.round(j.scrollLevel))
+      : SCROLL_LEVEL_DEFAULT
+  const m = parseMetronomeMuted(j?.metronomeMuted)
+  const metronomeMuted = m === undefined ? false : m
+  return { bpm, scrollLevel, metronomeMuted }
+}
+
 export function loadPracticePreferences(
   storage: Storage = localStorage,
 ): PracticePreferences {
-  let bpm = BPM_DEFAULT
-  let scrollLevel = SCROLL_LEVEL_DEFAULT
-  let metronomeMuted = false
+  const partial: Partial<PracticePreferences> = {}
 
   const rawBpm = storage.getItem(STORAGE_KEY_BPM)
   if (rawBpm != null) {
     const n = Number(rawBpm)
-    if (!Number.isNaN(n)) bpm = clampBpm(n)
+    if (!Number.isNaN(n)) partial.bpm = n
   }
 
   const rawLv = storage.getItem(STORAGE_KEY_SCROLL_LEVEL)
   if (rawLv != null) {
     const n = Number(rawLv)
-    if (!Number.isNaN(n)) scrollLevel = clampScrollLevel(n)
+    if (!Number.isNaN(n)) partial.scrollLevel = n
   }
 
   const rawMute = storage.getItem(STORAGE_KEY_METRONOME_MUTED)
-  if (rawMute === "1" || rawMute === "true") metronomeMuted = true
-  if (rawMute === "0" || rawMute === "false") metronomeMuted = false
+  const m = parseMetronomeMuted(rawMute)
+  if (m !== undefined) partial.metronomeMuted = m
 
-  return { bpm, scrollLevel, metronomeMuted }
+  return normalizePracticePreferences(partial)
 }
 
 export function savePracticePreferences(

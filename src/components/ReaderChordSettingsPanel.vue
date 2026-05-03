@@ -112,7 +112,8 @@ function toggle(key: "simplifyChords" | "parallelDisplay") {
     </label>
 
     <p class="hint">
-      移调与简化仅影响预览；正文源文件不变。Capo 仅作备忘提示。并行显示：和弦行合并为一段（行间空行忽略），按窗口宽度自动折行。
+      本谱独立记忆移调、缩放与练习条参数。移调与简化仅影响预览；正文源文件不变。Capo
+      仅作备忘提示。并行显示：和弦行合并为一段（行间空行忽略），按窗口宽度自动折行。
     </p>
   </aside>
 </template>

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest"
 import {
   loadPracticePreferences,
+  normalizePracticePreferences,
   savePracticePreferences,
 } from "./practicePreferences"
 
@@ -26,5 +27,18 @@ describe("practicePreferences", () => {
     savePracticePreferences(s, { ...a, bpm: 90 })
     const b = loadPracticePreferences(s)
     expect(b.bpm).toBe(90)
+  })
+
+  it("normalizePracticePreferences clamps and fills defaults", () => {
+    expect(normalizePracticePreferences({ bpm: 300, scrollLevel: 99 })).toEqual({
+      bpm: 240,
+      scrollLevel: 20,
+      metronomeMuted: false,
+    })
+    expect(normalizePracticePreferences({ metronomeMuted: true })).toEqual({
+      bpm: 120,
+      scrollLevel: 10,
+      metronomeMuted: true,
+    })
   })
 })

@@ -1,4 +1,4 @@
-import { type InjectionKey, reactive, watch } from "vue"
+import type { InjectionKey } from "vue"
 
 export type ChordStyle = "diagram" | "text"
 
@@ -41,25 +41,34 @@ function parseStoredBool(v: unknown, fallback: boolean): boolean {
   return fallback
 }
 
+/** Merge partial JSON into a valid prefs object (per-sheet storage + legacy load). */
+export function normalizeReaderChordPrefs(
+  j: Partial<ReaderChordPrefs> | null | undefined,
+): ReaderChordPrefs {
+  if (!j) return { ...DEFAULTS }
+  return {
+    transposeSemitones: clamp(Number(j.transposeSemitones) || 0, -11, 11),
+    capoFret: clamp(Number(j.capoFret) || 0, 0, 12),
+    zoomLevel: (() => {
+      const z = Number(j.zoomLevel)
+      return clamp(Number.isFinite(z) ? z : 1, 0, 2)
+    })(),
+    chordStyle: j.chordStyle === "text" ? "text" : "diagram",
+    simplifyChords: parseStoredBool(j.simplifyChords, DEFAULTS.simplifyChords),
+    parallelDisplay: parseStoredBool(
+      j.parallelDisplay,
+      DEFAULTS.parallelDisplay,
+    ),
+  }
+}
+
 export function loadReaderChordPrefs(): ReaderChordPrefs {
   try {
     const raw = localStorage.getItem(KEY)
     if (!raw) return { ...DEFAULTS }
-    const j = JSON.parse(raw) as Partial<ReaderChordPrefs>
-    return {
-      transposeSemitones: clamp(Number(j.transposeSemitones) || 0, -11, 11),
-      capoFret: clamp(Number(j.capoFret) || 0, 0, 12),
-      zoomLevel: (() => {
-        const z = Number(j.zoomLevel)
-        return clamp(Number.isFinite(z) ? z : 1, 0, 2)
-      })(),
-      chordStyle: j.chordStyle === "text" ? "text" : "diagram",
-      simplifyChords: parseStoredBool(j.simplifyChords, DEFAULTS.simplifyChords),
-      parallelDisplay: parseStoredBool(
-        j.parallelDisplay,
-        DEFAULTS.parallelDisplay,
-      ),
-    }
+    return normalizeReaderChordPrefs(
+      JSON.parse(raw) as Partial<ReaderChordPrefs>,
+    )
   } catch {
     return { ...DEFAULTS }
   }
@@ -67,15 +76,4 @@ export function loadReaderChordPrefs(): ReaderChordPrefs {
 
 export function saveReaderChordPrefs(p: ReaderChordPrefs): void {
   localStorage.setItem(KEY, JSON.stringify(p))
-}
-
-/** Reactive prefs persisted to localStorage */
-export function useReaderChordPrefs() {
-  const prefs = reactive<ReaderChordPrefs>(loadReaderChordPrefs())
-  watch(
-    prefs,
-    () => saveReaderChordPrefs({ ...prefs }),
-    { deep: true },
-  )
-  return prefs
 }

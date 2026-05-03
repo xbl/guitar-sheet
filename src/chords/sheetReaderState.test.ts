@@ -1,0 +1,112 @@
+import { afterEach, describe, expect, it } from "vitest"
+import { saveReaderChordPrefs } from "./readerPrefs"
+import {
+  loadSheetReaderStoredState,
+  saveSheetReaderStoredState,
+  sheetReaderStateStorageKey,
+} from "./sheetReaderState"
+import {
+  STORAGE_KEY_BPM,
+  STORAGE_KEY_METRONOME_MUTED,
+  STORAGE_KEY_SCROLL_LEVEL,
+} from "../practice/constants"
+
+function mockStorage() {
+  const m = new Map<string, string>()
+  return {
+    getItem: (k: string) => m.get(k) ?? null,
+    setItem: (k: string, v: string) => {
+      m.set(k, v)
+    },
+  } as Storage
+}
+
+describe("sheetReaderState", () => {
+  afterEach(() => {
+    localStorage.clear()
+  })
+
+  it("uses per-sheet key", () => {
+    expect(sheetReaderStateStorageKey("abc")).toBe(
+      "guitar-sheet.sheetReaderState.v1.abc",
+    )
+  })
+
+  it("round-trips chord and practice fields", () => {
+    const s = mockStorage()
+    saveSheetReaderStoredState(s, "s1", {
+      chord: {
+        transposeSemitones: 2,
+        capoFret: 3,
+        zoomLevel: 2,
+        chordStyle: "text",
+        simplifyChords: true,
+        parallelDisplay: true,
+      },
+      practice: { bpm: 88, scrollLevel: 15, metronomeMuted: true },
+    })
+    const got = loadSheetReaderStoredState(s, "s1")
+    expect(got.chord.transposeSemitones).toBe(2)
+    expect(got.chord.capoFret).toBe(3)
+    expect(got.chord.zoomLevel).toBe(2)
+    expect(got.chord.chordStyle).toBe("text")
+    expect(got.chord.simplifyChords).toBe(true)
+    expect(got.chord.parallelDisplay).toBe(true)
+    expect(got.practice.bpm).toBe(88)
+    expect(got.practice.scrollLevel).toBe(15)
+    expect(got.practice.metronomeMuted).toBe(true)
+  })
+
+  it("isolates prefs between two sheet ids", () => {
+    const s = mockStorage()
+    saveSheetReaderStoredState(s, "a", {
+      chord: {
+        transposeSemitones: -1,
+        capoFret: 0,
+        zoomLevel: 0,
+        chordStyle: "diagram",
+        simplifyChords: false,
+        parallelDisplay: false,
+      },
+      practice: { bpm: 100, scrollLevel: 5, metronomeMuted: false },
+    })
+    saveSheetReaderStoredState(s, "b", {
+      chord: {
+        transposeSemitones: 5,
+        capoFret: 2,
+        zoomLevel: 1,
+        chordStyle: "diagram",
+        simplifyChords: true,
+        parallelDisplay: false,
+      },
+      practice: { bpm: 140, scrollLevel: 18, metronomeMuted: true },
+    })
+    const ga = loadSheetReaderStoredState(s, "a")
+    const gb = loadSheetReaderStoredState(s, "b")
+    expect(ga.practice.scrollLevel).toBe(5)
+    expect(gb.practice.scrollLevel).toBe(18)
+    expect(ga.chord.transposeSemitones).toBe(-1)
+    expect(gb.chord.transposeSemitones).toBe(5)
+  })
+
+  it("migrates from legacy global keys when per-sheet blob missing", () => {
+    const s = mockStorage()
+    s.setItem(STORAGE_KEY_BPM, "92")
+    s.setItem(STORAGE_KEY_SCROLL_LEVEL, "7")
+    s.setItem(STORAGE_KEY_METRONOME_MUTED, "1")
+    saveReaderChordPrefs({
+      transposeSemitones: 1,
+      capoFret: 4,
+      zoomLevel: 2,
+      chordStyle: "text",
+      simplifyChords: true,
+      parallelDisplay: false,
+    })
+    const got = loadSheetReaderStoredState(s, "new-sheet")
+    expect(got.practice.bpm).toBe(92)
+    expect(got.practice.scrollLevel).toBe(7)
+    expect(got.practice.metronomeMuted).toBe(true)
+    expect(got.chord.transposeSemitones).toBe(1)
+    expect(got.chord.capoFret).toBe(4)
+  })
+})
