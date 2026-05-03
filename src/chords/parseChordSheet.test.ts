@@ -96,11 +96,26 @@ describe("buildChordDisplayBlocks", () => {
     ).toBeGreaterThanOrEqual(2)
   })
 
+  it("inserts a space cell at original line breaks when merging lyric lines in parallel mode", () => {
+    const lines = parseChordSheet("[C]第一行\n[D]第二行")
+    const blocks = buildChordDisplayBlocks(lines, true)
+    const b0 = blocks[0]
+    expect(b0?.kind).toBe("lyric-flow")
+    if (b0?.kind !== "lyric-flow") throw new Error("expected lyric-flow")
+    const gapIdx = b0.cells.findIndex((c) => c.chord === null && c.lyric === " ")
+    expect(gapIdx).toBeGreaterThan(0)
+    expect(gapIdx).toBeLessThan(b0.cells.length - 1)
+  })
+
   it("merges lyric lines across blank lines in parallel mode", () => {
     const lines = parseChordSheet("[C]a\n\n[D]b")
     const blocks = buildChordDisplayBlocks(lines, true)
     expect(blocks).toHaveLength(1)
     expect(blocks[0]).toMatchObject({ kind: "lyric-flow" })
+    const b0 = blocks[0]
+    if (b0?.kind === "lyric-flow") {
+      expect(b0.cells.some((c) => c.chord === null && c.lyric === " ")).toBe(true)
+    }
   })
 
   it("merges consecutive plain lines in parallel mode", () => {

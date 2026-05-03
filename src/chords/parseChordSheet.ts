@@ -17,6 +17,8 @@ export type ChordDisplayBlock =
  * When `parallel` is true: merge consecutive lyric lines into one wrap-friendly flow.
  * Blank lines between chord lines are ignored (common in sources); sections and plain
  * (non-chord) lines still break the flow. Consecutive plain lines merge with spaces.
+ * Between merged lyric lines, a single space cell is inserted at the original line break
+ * so phrase / bar boundaries stay visible.
  */
 export function buildChordDisplayBlocks(
   lines: ParsedSheetLine[],
@@ -70,6 +72,9 @@ export function buildChordDisplayBlocks(
       continue
     }
     flushPlain()
+    if (flow.length > 0) {
+      flow.push({ chord: null, lyric: " " })
+    }
     flow.push(...line.cells)
   }
   flushFlow()
