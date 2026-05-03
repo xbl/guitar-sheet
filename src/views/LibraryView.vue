@@ -14,6 +14,7 @@ import {
   registerLibraryPointerUi,
   takeLibraryPointerPayload,
 } from "../utils/treeDnD"
+import { showToast } from "../utils/toast"
 
 const sheets = ref<SheetMeta[]>([])
 const folderTree = ref<FolderNode[]>([])
@@ -188,7 +189,7 @@ async function onDeleteFolder(payload: { id: string; name: string }) {
     await refresh()
     readerReloadNonce.value++
   } catch (e) {
-    error.value = String(e)
+    showToast(String(e))
   }
 }
 

@@ -33,7 +33,7 @@ import {
   loadPracticePreferences,
   savePracticePreferences,
 } from "../practice/practicePreferences"
-import PracticeToolbar from "./practice/PracticeToolbar.vue"
+import { showToast } from "../utils/toast"
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 
@@ -447,14 +447,13 @@ async function removeSheet() {
   const id = props.sheetId
   if (!id || !meta.value) return
   if (!confirm(`删除「${meta.value.display_title}」？本地文件会一并删除。`)) return
-  error.value = null
   try {
     await invoke("delete_sheet", { id })
     emit("deleted", id)
     meta.value = null
     textBody.value = ""
   } catch (e) {
-    error.value = String(e)
+    showToast(String(e))
   }
 }
 

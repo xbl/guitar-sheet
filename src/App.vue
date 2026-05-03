@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core"
 import { getCurrentWindow } from "@tauri-apps/api/window"
 import { computed, onMounted, onUnmounted, ref } from "vue"
 import { RouterLink, RouterView, useRoute } from "vue-router"
+import GsToastHost from "./components/GsToastHost.vue"
 import type { UiPrefs, UiPrefsPatch } from "./types/uiPrefs"
 
 const route = useRoute()
@@ -108,6 +109,7 @@ onUnmounted(() => {
     <div class="shell-content">
       <RouterView />
     </div>
+    <GsToastHost />
   </div>
 </template>
 
