@@ -170,7 +170,9 @@ function isChordAnchor(cell: ChordCell): boolean {
   left: 50%;
   transform: translateX(-50%);
   min-height: 4.25em;
-  min-width: 0;
+  width: max-content;
+  min-width: min-content;
+  max-width: none;
   margin-bottom: 0;
   display: flex;
   justify-content: center;
@@ -208,7 +210,9 @@ function isChordAnchor(cell: ChordCell): boolean {
   left: 50%;
   transform: translateX(-50%);
   min-height: 4.25em;
-  min-width: 0;
+  width: max-content;
+  min-width: min-content;
+  max-width: none;
   margin-bottom: 0;
   display: flex;
   justify-content: center;
@@ -233,6 +237,8 @@ function isChordAnchor(cell: ChordCell): boolean {
   color: var(--gs-chord, var(--gs-danger));
   line-height: 1.1;
   padding-bottom: 0.15em;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .chord-empty {
   min-width: 0;
