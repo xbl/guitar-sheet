@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   buildChordDisplayBlocks,
+  expandChordAnchorsForFirstChar,
   looksLikeChordSheet,
   parseChordSheet,
   parseLyricLine,
@@ -28,7 +29,39 @@ describe("parseLyricLine", () => {
   })
 })
 
+describe("expandChordAnchorsForFirstChar", () => {
+  it("splits each chord segment so only first char keeps the chord", () => {
+    const raw = parseLyricLine("[Em]昨天今天过去不再[Em]回来")
+    const cells = expandChordAnchorsForFirstChar(raw)
+    expect(cells).toEqual([
+      { chord: "Em", lyric: "昨" },
+      { chord: null, lyric: "天今天过去不再" },
+      { chord: "Em", lyric: "回" },
+      { chord: null, lyric: "来" },
+    ])
+  })
+
+  it("leaves single-char segments unchanged", () => {
+    expect(expandChordAnchorsForFirstChar(parseLyricLine("[C]你"))).toEqual([
+      { chord: "C", lyric: "你" },
+    ])
+  })
+})
+
 describe("parseChordSheet", () => {
+  it("anchors chords to first character in sheet parse", () => {
+    const lines = parseChordSheet("[Em]昨天今天过去不再[Em]回来")
+    expect(lines[0]).toMatchObject({
+      kind: "lyric",
+      cells: [
+        { chord: "Em", lyric: "昨" },
+        { chord: null, lyric: "天今天过去不再" },
+        { chord: "Em", lyric: "回" },
+        { chord: null, lyric: "来" },
+      ],
+    })
+  })
+
   it("parses sections and blank lines", () => {
     const src = "## 主歌\n\n[C]一行\n普通"
     const lines = parseChordSheet(src)

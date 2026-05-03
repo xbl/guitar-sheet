@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue"
+import type { ChordCell } from "../../chords/parseChordSheet"
 import ChordDiagramSvg from "./ChordDiagramSvg.vue"
 import {
   buildChordDisplayBlocks,
@@ -35,6 +36,11 @@ function displayChord(raw: string): string {
   if (props.simplifyChords) s = simplifyChordSymbol(s)
   return transposeChordSymbol(s, props.transposeSemitones)
 }
+
+/** Chord stacks on the first lyric character only (see `expandChordAnchorsForFirstChar`). */
+function isChordAnchor(cell: ChordCell): boolean {
+  return cell.chord !== null && cell.lyric.length === 1
+}
 </script>
 
 <template>
@@ -50,11 +56,45 @@ function displayChord(raw: string): string {
       <p v-else-if="block.kind === 'plain'" class="plain-line">{{ block.text }}</p>
 
       <div v-else-if="block.kind === 'lyric-line'" class="lyric-block">
-        <div class="chord-row">
+        <div class="lyric-line-cols">
           <div
             v-for="(cell, ci) in block.cells"
-            :key="'c' + ci"
+            :key="'col' + ci"
+            class="lyric-col"
+            :class="{ 'lyric-col--anchor': isChordAnchor(cell) }"
+          >
+            <div
+              class="chord-cell"
+              :class="{ 'chord-cell--on-anchor': isChordAnchor(cell) }"
+            >
+              <ChordDiagramSvg
+                v-if="cell.chord && chordStyle === 'diagram'"
+                :name="displayChord(cell.chord)"
+              />
+              <span
+                v-else-if="cell.chord && chordStyle === 'text'"
+                class="chord-text"
+              >{{ displayChord(cell.chord) }}</span>
+              <div v-else class="chord-empty" />
+            </div>
+            <span
+              class="lyric-cell"
+              :class="{ 'lyric-cell--anchored': isChordAnchor(cell) }"
+            >{{ cell.lyric }}</span>
+          </div>
+        </div>
+      </div>
+
+      <div v-else class="lyric-block lyric-block--flow">
+        <div
+          v-for="(cell, ci) in block.cells"
+          :key="'f' + ci"
+          class="lyric-unit"
+          :class="{ 'lyric-unit--anchor': isChordAnchor(cell) }"
+        >
+          <div
             class="chord-cell"
+            :class="{ 'chord-cell--on-anchor': isChordAnchor(cell) }"
           >
             <ChordDiagramSvg
               v-if="cell.chord && chordStyle === 'diagram'"
@@ -66,34 +106,10 @@ function displayChord(raw: string): string {
             >{{ displayChord(cell.chord) }}</span>
             <div v-else class="chord-empty" />
           </div>
-        </div>
-        <div class="lyric-row">
           <span
-            v-for="(cell, ci) in block.cells"
-            :key="'l' + ci"
             class="lyric-cell"
+            :class="{ 'lyric-cell--anchored': isChordAnchor(cell) }"
           >{{ cell.lyric }}</span>
-        </div>
-      </div>
-
-      <div v-else class="lyric-block lyric-block--flow">
-        <div
-          v-for="(cell, ci) in block.cells"
-          :key="'f' + ci"
-          class="lyric-unit"
-        >
-          <div class="chord-cell">
-            <ChordDiagramSvg
-              v-if="cell.chord && chordStyle === 'diagram'"
-              :name="displayChord(cell.chord)"
-            />
-            <span
-              v-else-if="cell.chord && chordStyle === 'text'"
-              class="chord-text"
-            >{{ displayChord(cell.chord) }}</span>
-            <div v-else class="chord-empty" />
-          </div>
-          <span class="lyric-cell">{{ cell.lyric }}</span>
         </div>
       </div>
     </template>
@@ -137,6 +153,26 @@ function displayChord(raw: string): string {
 .lyric-block {
   margin: 0.35rem 0 0.75rem;
 }
+.lyric-line-cols {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.25em 0.35em;
+}
+.lyric-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.lyric-col--anchor {
+  flex: 0 0 auto;
+}
+.lyric-col .chord-cell {
+  margin-bottom: 0.08em;
+  min-height: 4.35em;
+}
 .lyric-block--flow {
   display: flex;
   flex-wrap: wrap;
@@ -149,22 +185,18 @@ function displayChord(raw: string): string {
   flex-direction: column;
   align-items: center;
   flex: 0 1 auto;
+  min-width: 0;
   max-width: 100%;
+}
+.lyric-unit--anchor {
+  flex: 0 0 auto;
 }
 .lyric-block--flow .chord-cell {
   margin-bottom: 0.08em;
   min-height: 4.35em;
 }
-.chord-row,
-.lyric-row {
-  display: flex;
-  flex-wrap: nowrap;
-  align-items: flex-end;
-  gap: 0.25em 0.35em;
-}
-.chord-row {
-  margin-bottom: 0.08em;
-  min-height: 4.35em;
+.lyric-unit--anchor .chord-cell {
+  min-width: 0;
 }
 .chord-cell {
   flex: 0 0 auto;
@@ -172,6 +204,10 @@ function displayChord(raw: string): string {
   display: flex;
   justify-content: center;
   align-items: flex-end;
+}
+.chord-cell--on-anchor {
+  min-width: 0;
+  max-width: 100%;
 }
 .chord-text {
   font-size: 0.82em;
@@ -184,6 +220,10 @@ function displayChord(raw: string): string {
   min-width: 2.85em;
   min-height: 2.85em;
 }
+.lyric-unit--anchor .chord-empty {
+  min-width: 0.35em;
+  min-height: 2.85em;
+}
 .lyric-block--flow .lyric-cell {
   flex: none;
   max-width: 100%;
@@ -192,9 +232,15 @@ function displayChord(raw: string): string {
 }
 .lyric-cell {
   flex: 0 1 auto;
-  min-width: 1.5rem;
+  min-width: 0;
   font-size: inherit;
   line-height: inherit;
-  border-bottom: 1px dotted transparent;
+}
+.lyric-cell--anchored {
+  text-decoration: underline;
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 0.18em;
+  font-weight: 600;
+  text-align: center;
 }
 </style>

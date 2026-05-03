@@ -134,6 +134,25 @@ function mergePlain(cells: ChordCell[], lyric: string) {
   else cells.push({ chord: null, lyric })
 }
 
+/**
+ * Each `[Chord]…` segment becomes chord above the **first character only**;
+ * remaining characters follow in a plain cell (renderer underlines that anchor char).
+ */
+export function expandChordAnchorsForFirstChar(cells: ChordCell[]): ChordCell[] {
+  const out: ChordCell[] = []
+  for (const c of cells) {
+    if (c.chord !== null && c.lyric.length > 1) {
+      const first = c.lyric[0]!
+      const rest = c.lyric.slice(1)
+      out.push({ chord: c.chord, lyric: first })
+      mergePlain(out, rest)
+    } else {
+      out.push({ chord: c.chord, lyric: c.lyric })
+    }
+  }
+  return out
+}
+
 export function parseChordSheet(source: string): ParsedSheetLine[] {
   const lines = source.replace(/\r\n/g, "\n").split("\n")
   const out: ParsedSheetLine[] = []
@@ -156,7 +175,7 @@ export function parseChordSheet(source: string): ParsedSheetLine[] {
       continue
     }
 
-    const cells = parseLyricLine(trimmed)
+    const cells = expandChordAnchorsForFirstChar(parseLyricLine(trimmed))
     if (cells.length === 0) out.push({ kind: "plain", text: trimmed })
     else out.push({ kind: "lyric", cells })
   }
