@@ -8,7 +8,11 @@ import type { FolderNode } from "../types/folder"
 import { buildLibraryTree, type LibraryTreeRow } from "../utils/libraryTree"
 import type { ConflictEntry, SheetMeta, SyncOutcome } from "../types/sheet"
 import type { TreeDndPayload } from "../utils/treeDnD"
-import { readTreeDragPayload } from "../utils/treeDnD"
+import {
+  clearLibraryPointerPayload,
+  registerLibraryPointerUi,
+  takeLibraryPointerPayload,
+} from "../utils/treeDnD"
 
 const sheets = ref<SheetMeta[]>([])
 const folderTree = ref<FolderNode[]>([])
@@ -43,26 +47,59 @@ const highlightDropRoot = ref(false)
 /** 谱库拖放后强制重载阅读区（路径变化） */
 const readerReloadNonce = ref(0)
 
-function clearDropHighlight() {
-  highlightDropFolderId.value = null
-  highlightDropRoot.value = false
+/** 指针拖动悬停：与 HTML5 dragover 无关，仅靠 mousemove 坐标 */
+function libraryPointerHover(clientX: number, clientY: number) {
+  const el = document.elementFromPoint(clientX, clientY)
+  if (!el) return
+  const folderHost = el.closest("[data-folder-drop-id]")
+  if (folderHost instanceof HTMLElement) {
+    const fid = folderHost.getAttribute("data-folder-drop-id")
+    if (fid) {
+      highlightDropFolderId.value = fid
+      highlightDropRoot.value = false
+      return
+    }
+  }
+  const rootHost = el.closest(".tree-drop-root")
+  if (rootHost) {
+    highlightDropFolderId.value = null
+    highlightDropRoot.value = true
+    return
+  }
+  if (el.closest(".tree-scroll")) {
+    highlightDropFolderId.value = null
+    highlightDropRoot.value = false
+  }
 }
 
-function onFolderDropHover(id: string | null) {
-  highlightDropFolderId.value = id
-  highlightDropRoot.value = false
+async function libraryPointerDrop(clientX: number, clientY: number) {
+  const el = document.elementFromPoint(clientX, clientY)
+  if (!el) {
+    takeLibraryPointerPayload()
+    return
+  }
+  const folderHost = el.closest("[data-folder-drop-id]")
+  if (folderHost instanceof HTMLElement) {
+    const folderId = folderHost.getAttribute("data-folder-drop-id")
+    if (folderId) {
+      clearDropHighlight()
+      const dragPayload = takeLibraryPointerPayload()
+      if (!dragPayload) return
+      if (dragPayload.kind === "folder" && dragPayload.id === folderId) return
+      await onTreeMoveDrop({ target: { kind: "folder", folderId }, drag: dragPayload })
+      return
+    }
+  }
+  if (el.closest(".tree-drop-root")) {
+    clearDropHighlight()
+    const taken = takeLibraryPointerPayload()
+    if (taken) await moveSheetOrFolderToRoot(taken)
+    return
+  }
+  takeLibraryPointerPayload()
 }
 
-function onRootDragOver(e: DragEvent) {
-  e.preventDefault()
-  highlightDropFolderId.value = null
-  highlightDropRoot.value = true
-}
-
-async function onRootDrop(e: DragEvent) {
-  const drag = readTreeDragPayload(e)
-  clearDropHighlight()
-  if (!drag) return
+async function moveSheetOrFolderToRoot(drag: TreeDndPayload) {
   error.value = null
   try {
     if (drag.kind === "sheet") {
@@ -75,6 +112,11 @@ async function onRootDrop(e: DragEvent) {
   } catch (err) {
     error.value = String(err)
   }
+}
+
+function clearDropHighlight() {
+  highlightDropFolderId.value = null
+  highlightDropRoot.value = false
 }
 
 async function onTreeMoveDrop(payload: {
@@ -101,6 +143,56 @@ async function onTreeMoveDrop(payload: {
     readerReloadNonce.value++
   } catch (err) {
     error.value = String(err)
+  }
+}
+
+async function onDeleteFolder(payload: { id: string; name: string }) {
+  if (
+    !confirm(
+      `删除文件夹「${payload.name}」？仅允许删除空文件夹（无子文件夹、无曲谱）。`,
+    )
+  ) {
+    return
+  }
+  error.value = null
+  try {
+    await invoke("delete_folder", { folderId: payload.id })
+    if (contextFolderId.value === payload.id) {
+      contextFolderId.value = null
+    }
+    await refresh()
+    readerReloadNonce.value++
+  } catch (e) {
+    error.value = String(e)
+  }
+}
+
+async function onFolderRename(payload: { id: string; name: string }) {
+  const next = window.prompt("文件夹名称", payload.name)
+  if (next === null) return
+  const t = next.trim()
+  if (!t || t === payload.name) return
+  error.value = null
+  try {
+    await invoke("rename_folder", { folderId: payload.id, newName: t })
+    await refresh()
+    readerReloadNonce.value++
+  } catch (e) {
+    error.value = String(e)
+  }
+}
+
+async function onCreateSubfolder(parentId: string) {
+  const next = window.prompt("新建子文件夹名称")
+  if (next === null) return
+  const t = next.trim()
+  if (!t) return
+  error.value = null
+  try {
+    await invoke("create_folder", { parentId, name: t })
+    await refresh()
+  } catch (e) {
+    error.value = String(e)
   }
 }
 
@@ -267,6 +359,11 @@ function toggleFolderCollapse(id: string) {
   }
 }
 
+function onLibraryPointerCleanup() {
+  clearDropHighlight()
+  clearLibraryPointerPayload()
+}
+
 watch(selectedSheetId, (id) => {
   if (pendingTextEditSheetId.value !== null && id !== pendingTextEditSheetId.value) {
     pendingTextEditSheetId.value = null
@@ -275,11 +372,13 @@ watch(selectedSheetId, (id) => {
 
 onMounted(() => {
   void refresh()
-  document.addEventListener("dragend", clearDropHighlight)
+  registerLibraryPointerUi(libraryPointerHover, libraryPointerDrop)
+  document.addEventListener("dragend", onLibraryPointerCleanup)
 })
 
 onUnmounted(() => {
-  document.removeEventListener("dragend", clearDropHighlight)
+  registerLibraryPointerUi(null, null)
+  document.removeEventListener("dragend", onLibraryPointerCleanup)
 })
 </script>
 
@@ -309,13 +408,11 @@ onUnmounted(() => {
         </button>
       </div>
       <p class="hint small">
-        点击文件夹名：在此下新建 / 导入 / <strong>新建曲谱</strong>；点击曲谱：右侧打开。可将曲谱或文件夹<strong>拖到文件夹名上</strong>以移入。
+        点击文件夹名：在此下新建 / 导入 / <strong>新建曲谱</strong>；右侧图标可重命名、新建子文件夹、删除（须为空）。曲谱 / 文件夹可<strong>拖到文件夹一整行</strong>移入。
       </p>
       <div
         class="tree-drop-root"
         :class="{ 'is-target': highlightDropRoot }"
-        @dragover="onRootDragOver"
-        @drop.prevent="onRootDrop"
       >
         拖到此处 → 移至谱库根目录（移出文件夹）
       </div>
@@ -331,8 +428,9 @@ onUnmounted(() => {
             @select-sheet="selectedSheetId = $event"
             @select-folder="contextFolderId = $event"
             @toggle-folder-collapse="toggleFolderCollapse"
-            @folder-drop-hover="onFolderDropHover"
-            @move-drop="onTreeMoveDrop"
+            @folder-rename="onFolderRename"
+            @create-subfolder="onCreateSubfolder"
+            @delete-folder="onDeleteFolder"
           />
         </template>
         <p v-else class="muted small">暂无文件夹与曲谱。可先导入或创建文件夹。</p>
@@ -489,6 +587,28 @@ onUnmounted(() => {
   border-color: var(--gs-primary-border);
   color: var(--gs-link);
   background: var(--gs-primary-bg);
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--gs-primary-border) 35%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, var(--gs-primary-border) 22%, transparent);
+  animation: gs-tree-root-drop-pulse 1.1s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tree-drop-root.is-target {
+    animation: none;
+  }
+}
+@keyframes gs-tree-root-drop-pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 2px color-mix(in srgb, var(--gs-primary-border) 35%, transparent),
+      inset 0 0 0 1px color-mix(in srgb, var(--gs-primary-border) 22%, transparent);
+  }
+  50% {
+    box-shadow:
+      0 0 0 4px color-mix(in srgb, var(--gs-primary-border) 45%, transparent),
+      inset 0 0 0 1px color-mix(in srgb, var(--gs-primary-border) 30%, transparent);
+  }
 }
 .tree-scroll {
   flex: 1;

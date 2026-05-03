@@ -457,6 +457,43 @@ pub fn update_folder_parent(
     Ok(())
 }
 
+pub fn update_folder_name(conn: &Connection, folder_id: &str, name: &str) -> AppResult<()> {
+    let n = conn.execute(
+        "UPDATE folders SET name = ?2 WHERE id = ?1",
+        params![folder_id, name],
+    )?;
+    if n == 0 {
+        return Err(AppError::BadInput(format!("no folder with id {folder_id}")));
+    }
+    Ok(())
+}
+
+pub fn count_child_folders(conn: &Connection, parent_id: &str) -> AppResult<i64> {
+    let n: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM folders WHERE parent_id = ?1",
+        params![parent_id],
+        |r| r.get(0),
+    )?;
+    Ok(n)
+}
+
+pub fn count_sheets_in_folder(conn: &Connection, folder_id: &str) -> AppResult<i64> {
+    let n: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM sheets WHERE folder_id = ?1",
+        params![folder_id],
+        |r| r.get(0),
+    )?;
+    Ok(n)
+}
+
+pub fn delete_folder_row(conn: &Connection, folder_id: &str) -> AppResult<()> {
+    let n = conn.execute("DELETE FROM folders WHERE id = ?1", params![folder_id])?;
+    if n == 0 {
+        return Err(AppError::BadInput(format!("no folder with id {folder_id}")));
+    }
+    Ok(())
+}
+
 // --- Tags (schema v2) ---
 
 pub fn normalize_tag_name(raw: &str) -> String {

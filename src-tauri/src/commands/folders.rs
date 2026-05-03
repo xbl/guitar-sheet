@@ -245,3 +245,139 @@ pub fn move_folder(
         name: folder.name,
     })
 }
+
+#[tauri::command]
+pub fn rename_folder(
+    state: State<'_, AppState>,
+    folder_id: String,
+    new_name: String,
+) -> Result<FolderDto, String> {
+    let paths = &state.paths;
+    let new_name = sanitize::sanitize_segment(&new_name).map_err(|e| e.to_string())?;
+    let mut conn = state
+        .conn
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
+
+    let folder = db::get_folder(&conn, &folder_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "folder not found".to_string())?;
+
+    if new_name == folder.name {
+        return Ok(FolderDto {
+            id: folder_id.clone(),
+            parent_id: folder.parent_id.clone(),
+            name: folder.name.clone(),
+        });
+    }
+
+    if db::folder_name_exists_under_parent(
+        &conn,
+        folder.parent_id.as_deref(),
+        &new_name,
+        &folder_id,
+    )
+    .map_err(|e| e.to_string())?
+    {
+        return Err("该位置已有同名文件夹。".into());
+    }
+
+    let old_segments = db::folder_path_segments(&conn, &folder_id).map_err(|e| e.to_string())?;
+    if old_segments.last().map(|s| s.as_str()) != Some(folder.name.as_str()) {
+        return Err("internal folder segment mismatch".into());
+    }
+
+    let mut new_segments = old_segments.clone();
+    new_segments.pop();
+    new_segments.push(new_name.clone());
+
+    let old_disk = library_paths::folder_disk_path(&paths.library_dir, &old_segments);
+    let new_disk = library_paths::folder_disk_path(&paths.library_dir, &new_segments);
+
+    if !old_disk.is_dir() {
+        return Err("磁盘上找不到该文件夹。".into());
+    }
+    if new_disk.exists() {
+        return Err("目标路径已存在。".into());
+    }
+
+    if let Some(parent) = new_disk.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+
+    std::fs::rename(&old_disk, &new_disk).map_err(|e| e.to_string())?;
+
+    let old_prefix = format!("library/content/{}", old_segments.join("/"));
+    let new_prefix = format!("library/content/{}", new_segments.join("/"));
+
+    let affected =
+        db::list_sheets_under_local_prefix(&conn, &old_prefix).map_err(|e| e.to_string())?;
+
+    let tx_result: Result<(), String> = (|| {
+        let tx = conn.transaction().map_err(|e| e.to_string())?;
+        db::update_folder_name(&tx, &folder_id, &new_name).map_err(|e| e.to_string())?;
+        for sheet in &affected {
+            if sheet.local_rel_path == old_prefix {
+                return Err("internal: sheet path conflicts with folder path".into());
+            }
+            let rest = sheet
+                .local_rel_path
+                .strip_prefix(&old_prefix)
+                .ok_or_else(|| "internal: sheet path prefix".to_string())?;
+            let rest = rest.trim_start_matches('/');
+            let new_local = format!("{}/{}", new_prefix, rest);
+            let new_remote = remote_path_for_local_rel(paths, &new_local)?;
+            db::update_sheet_storage_paths(&tx, &sheet.id, &new_local, new_remote.as_deref())
+                .map_err(|e| e.to_string())?;
+        }
+        tx.commit().map_err(|e| e.to_string())?;
+        Ok(())
+    })();
+
+    if let Err(e) = tx_result {
+        let _ = std::fs::rename(&new_disk, &old_disk);
+        return Err(e);
+    }
+
+    Ok(FolderDto {
+        id: folder_id,
+        parent_id: folder.parent_id,
+        name: new_name,
+    })
+}
+
+#[tauri::command]
+pub fn delete_folder(state: State<'_, AppState>, folder_id: String) -> Result<(), String> {
+    let paths = &state.paths;
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
+
+    db::get_folder(&conn, &folder_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "folder not found".to_string())?;
+
+    let n_child = db::count_child_folders(&conn, &folder_id).map_err(|e| e.to_string())?;
+    if n_child > 0 {
+        return Err("请先删除或移出子文件夹。".into());
+    }
+
+    let n_sheet = db::count_sheets_in_folder(&conn, &folder_id).map_err(|e| e.to_string())?;
+    if n_sheet > 0 {
+        return Err("请先移出文件夹内的曲谱。".into());
+    }
+
+    let segments = db::folder_path_segments(&conn, &folder_id).map_err(|e| e.to_string())?;
+    let disk_path = library_paths::folder_disk_path(&paths.library_dir, &segments);
+
+    db::delete_folder_row(&conn, &folder_id).map_err(|e| e.to_string())?;
+
+    drop(conn);
+
+    if disk_path.is_dir() {
+        std::fs::remove_dir_all(&disk_path).map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
+}

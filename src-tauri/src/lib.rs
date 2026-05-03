@@ -47,6 +47,8 @@ pub fn run() {
             commands::folders::create_folder,
             commands::folders::list_folder_tree,
             commands::folders::move_folder,
+            commands::folders::rename_folder,
+            commands::folders::delete_folder,
             commands::tags::set_sheet_tags,
             commands::tags::list_all_tags,
             commands::sheets::import_sheet,

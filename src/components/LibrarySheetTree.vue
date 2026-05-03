@@ -2,8 +2,10 @@
 import LibrarySheetTree from "./LibrarySheetTree.vue"
 import type { LibraryTreeRow } from "../utils/libraryTree"
 import {
-  readTreeDragPayload,
-  setTreeDragPayload,
+  clearLibraryPointerPayload,
+  notifyLibraryPointerDrop,
+  notifyLibraryPointerHover,
+  setLibraryPointerPayload,
   type TreeDndPayload,
 } from "../utils/treeDnD"
 
@@ -23,35 +25,88 @@ const emit = defineEmits<{
   selectSheet: [id: string]
   selectFolder: [id: string]
   toggleFolderCollapse: [id: string]
-  folderDropHover: [id: string | null]
-  moveDrop: [
-    payload: {
-      target: { kind: "folder"; folderId: string }
-      drag: TreeDndPayload
-    },
-  ]
+  folderRename: [payload: { id: string; name: string }]
+  createSubfolder: [parentId: string]
+  deleteFolder: [payload: { id: string; name: string }]
 }>()
 
-function onSheetDragStart(row: LibraryTreeRow & { kind: "sheet" }, e: DragEvent) {
-  setTreeDragPayload(e, { kind: "sheet", id: row.id })
+const DRAG_THRESHOLD_PX = 6
+
+/** 拖动结束后吞掉一次 click，避免误触选中 */
+let suppressNextTreeClick = false
+
+function sheetPayload(row: LibraryTreeRow & { kind: "sheet" }): TreeDndPayload {
+  return { kind: "sheet", id: row.id }
 }
 
-function onFolderDragStart(row: LibraryTreeRow & { kind: "folder" }, e: DragEvent) {
-  setTreeDragPayload(e, { kind: "folder", id: row.id })
+function folderPayload(row: LibraryTreeRow & { kind: "folder" }): TreeDndPayload {
+  return { kind: "folder", id: row.id }
 }
 
-function onFolderDragOver(folderId: string, e: DragEvent) {
-  e.preventDefault()
-  emit("folderDropHover", folderId)
+function attachRowPointerDrag(payload: TreeDndPayload, e: MouseEvent) {
+  if (e.button !== 0) return
+  const sx = e.clientX
+  const sy = e.clientY
+  let moved = false
+
+  const onMove = (ev: MouseEvent) => {
+    if (!moved) {
+      if (Math.hypot(ev.clientX - sx, ev.clientY - sy) > DRAG_THRESHOLD_PX) {
+        moved = true
+        setLibraryPointerPayload(payload)
+        document.body.style.userSelect = "none"
+      }
+    }
+    if (moved) {
+      notifyLibraryPointerHover(ev.clientX, ev.clientY)
+      ev.preventDefault()
+    }
+  }
+
+  const onUp = (ev: MouseEvent) => {
+    window.removeEventListener("mousemove", onMove)
+    window.removeEventListener("mouseup", onUp)
+    document.body.style.userSelect = ""
+    if (moved) {
+      suppressNextTreeClick = true
+      void notifyLibraryPointerDrop(ev.clientX, ev.clientY)
+    } else {
+      clearLibraryPointerPayload()
+    }
+  }
+
+  window.addEventListener("mousemove", onMove)
+  window.addEventListener("mouseup", onUp)
 }
 
-function onFolderDrop(folderId: string, e: DragEvent) {
-  e.preventDefault()
-  const drag = readTreeDragPayload(e)
-  if (!drag) return
-  if (drag.kind === "folder" && drag.id === folderId) return
-  emit("moveDrop", { target: { kind: "folder", folderId }, drag })
+function onSheetRowPointerDown(row: LibraryTreeRow & { kind: "sheet" }, e: MouseEvent) {
+  attachRowPointerDrag(sheetPayload(row), e)
 }
+
+function onFolderRowPointerDown(row: LibraryTreeRow & { kind: "folder" }, e: MouseEvent) {
+  attachRowPointerDrag(folderPayload(row), e)
+}
+
+function onSheetRowClick(row: LibraryTreeRow & { kind: "sheet" }, e: MouseEvent) {
+  if (suppressNextTreeClick) {
+    suppressNextTreeClick = false
+    e.preventDefault()
+    e.stopPropagation()
+    return
+  }
+  emit("selectSheet", row.id)
+}
+
+function onFolderHitClick(row: LibraryTreeRow & { kind: "folder" }, e: MouseEvent) {
+  if (suppressNextTreeClick) {
+    suppressNextTreeClick = false
+    e.preventDefault()
+    e.stopPropagation()
+    return
+  }
+  emit("selectFolder", row.id)
+}
+
 </script>
 
 <template>
@@ -69,6 +124,7 @@ function onFolderDrop(folderId: string, e: DragEvent) {
       >
         <div
           class="folder-line"
+          :data-folder-drop-id="row.id"
           :class="{
             'is-context': contextFolderId === row.id,
             'is-drop-target': highlightDropFolderId === row.id,
@@ -102,13 +158,23 @@ function onFolderDrop(folderId: string, e: DragEvent) {
           </button>
           <span v-else class="tree-chevron tree-chevron--spacer" aria-hidden="true" />
 
-          <span class="folder-icon-wrap" aria-hidden="true">
+          <button
+            type="button"
+            class="folder-icon-hit"
+            draggable="false"
+            title="选中为新建/导入目标"
+            aria-label="选中文件夹"
+            @click.stop="$emit('selectFolder', row.id)"
+            @mousedown.stop
+            @pointerdown.stop
+          >
             <svg
               class="folder-svg"
               width="18"
               height="18"
               viewBox="0 0 24 24"
               fill="none"
+              aria-hidden="true"
             >
               <path
                 d="M4 8a2 2 0 012-2h3.5l1.6 1.6a1 1 0 00.7.3H19a2 2 0 012 2v9a2 2 0 01-2 2H6a2 2 0 01-2-2V8z"
@@ -117,21 +183,91 @@ function onFolderDrop(folderId: string, e: DragEvent) {
                 stroke-linejoin="round"
               />
             </svg>
-          </span>
+          </button>
 
           <button
             type="button"
             class="folder-hit"
-            draggable="true"
-            :title="'拖动文件夹；或将曲谱拖到此移入'"
-            @dragstart="onFolderDragStart(row, $event)"
-            @click="$emit('selectFolder', row.id)"
-            @dragover="onFolderDragOver(row.id, $event)"
-            @drop="onFolderDrop(row.id, $event)"
+            :title="'拖动整行移动文件夹；或将曲谱拖入此行'"
+            @mousedown="onFolderRowPointerDown(row, $event)"
+            @click="onFolderHitClick(row, $event)"
           >
             <span class="folder-name">{{ row.name }}</span>
             <span class="folder-count">{{ row.sheetCount }}</span>
           </button>
+
+          <div
+            class="folder-actions"
+            @click.stop
+            @mousedown.stop
+            @pointerdown.stop
+          >
+            <button
+              type="button"
+              class="icon-btn"
+              draggable="false"
+              title="重命名"
+              aria-label="重命名文件夹"
+              @click.stop="$emit('folderRename', { id: row.id, name: row.name })"
+              @mousedown.stop
+              @pointerdown.stop
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path
+                  d="M4 20h4l9.5-9.5a2 2 0 000-2.83l-.67-.67a2 2 0 00-2.83 0L4 16v4z"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linejoin="round"
+                />
+                <path d="M13 7l4 4" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              class="icon-btn"
+              draggable="false"
+              title="在此文件夹下新建子文件夹"
+              aria-label="新建子文件夹"
+              @click.stop="$emit('createSubfolder', row.id)"
+              @mousedown.stop
+              @pointerdown.stop
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path
+                  d="M4 8a2 2 0 012-2h3.5l1.6 1.6a1 1 0 00.7.3H19a2 2 0 012 2v9a2 2 0 01-2 2H6a2 2 0 01-2-2V8z"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linejoin="round"
+                />
+                <path
+                  d="M12 11v6M9 14h6"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                />
+              </svg>
+            </button>
+            <button
+              type="button"
+              class="icon-btn icon-btn--danger"
+              draggable="false"
+              title="删除空文件夹"
+              aria-label="删除文件夹"
+              @click.stop="$emit('deleteFolder', { id: row.id, name: row.name })"
+              @mousedown.stop
+              @pointerdown.stop
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path
+                  d="M4 7h16M10 11v6M14 11v6M6 7l1 14h10l1-14M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </button>
+          </div>
         </div>
 
         <LibrarySheetTree
@@ -144,8 +280,9 @@ function onFolderDrop(folderId: string, e: DragEvent) {
           @select-sheet="$emit('selectSheet', $event)"
           @select-folder="$emit('selectFolder', $event)"
           @toggle-folder-collapse="$emit('toggleFolderCollapse', $event)"
-          @folder-drop-hover="$emit('folderDropHover', $event)"
-          @move-drop="$emit('moveDrop', $event)"
+          @folder-rename="$emit('folderRename', $event)"
+          @create-subfolder="$emit('createSubfolder', $event)"
+          @delete-folder="$emit('deleteFolder', $event)"
         />
       </li>
 
@@ -158,10 +295,27 @@ function onFolderDrop(folderId: string, e: DragEvent) {
           type="button"
           class="sheet-hit"
           :class="{ active: selectedSheetId === row.id }"
-          draggable="true"
-          @dragstart="onSheetDragStart(row, $event)"
-          @click="$emit('selectSheet', row.id)"
+          @mousedown="onSheetRowPointerDown(row, $event)"
+          @click="onSheetRowClick(row, $event)"
         >
+          <span class="sheet-icon-wrap" aria-hidden="true">
+            <svg
+              class="sheet-svg"
+              width="17"
+              height="17"
+              viewBox="0 0 24 24"
+              fill="none"
+            >
+              <path
+                d="M14 2H8a2 2 0 00-2 2v16a2 2 0 002 2h8a2 2 0 002-2V8l-6-6z"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linejoin="round"
+              />
+              <path d="M14 2v6h6" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" />
+              <path d="M8 14h8M8 17h5" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" />
+            </svg>
+          </span>
           <span class="sheet-title">{{ row.title }}</span>
           <span class="sheet-kind">{{ row.sheetKind }}</span>
         </button>
@@ -207,7 +361,7 @@ function onFolderDrop(folderId: string, e: DragEvent) {
   background: var(--gs-tree-row-active);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gs-tree-accent) 28%, transparent);
 }
-.folder-line.is-context .folder-icon-wrap {
+.folder-line.is-context .folder-icon-hit {
   color: var(--gs-tree-accent);
 }
 .folder-line.is-context .folder-name {
@@ -215,9 +369,32 @@ function onFolderDrop(folderId: string, e: DragEvent) {
   font-weight: 650;
 }
 .folder-line.is-drop-target {
-  outline: 2px dashed var(--gs-tree-accent-muted);
+  z-index: 1;
+  outline: 2px solid var(--gs-tree-accent);
   outline-offset: 1px;
-  background: color-mix(in srgb, var(--gs-tree-row-active) 85%, white);
+  background: color-mix(in srgb, var(--gs-tree-accent) 14%, var(--gs-bg-surface));
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--gs-tree-accent) 24%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, var(--gs-tree-accent) 22%, transparent);
+  animation: gs-tree-folder-drop-pulse 1.1s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .folder-line.is-drop-target {
+    animation: none;
+  }
+}
+@keyframes gs-tree-folder-drop-pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 2px color-mix(in srgb, var(--gs-tree-accent) 24%, transparent),
+      inset 0 0 0 1px color-mix(in srgb, var(--gs-tree-accent) 22%, transparent);
+  }
+  50% {
+    box-shadow:
+      0 0 0 4px color-mix(in srgb, var(--gs-tree-accent) 34%, transparent),
+      inset 0 0 0 1px color-mix(in srgb, var(--gs-tree-accent) 32%, transparent);
+  }
 }
 
 .tree-chevron {
@@ -251,12 +428,25 @@ function onFolderDrop(folderId: string, e: DragEvent) {
   flex-shrink: 0;
 }
 
-.folder-icon-wrap {
+.folder-icon-hit {
   flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 0.15rem;
+  margin: 0;
+  border: none;
+  border-radius: var(--gs-radius-sm);
+  background: transparent;
   color: var(--gs-text-muted);
+  cursor: pointer;
+}
+.folder-icon-hit:hover {
+  background: color-mix(in srgb, var(--gs-border) 35%, transparent);
+  color: var(--gs-text-muted);
+}
+.folder-line.is-context .folder-icon-hit:hover {
+  background: color-mix(in srgb, var(--gs-tree-accent) 14%, transparent);
 }
 .folder-line:not(.is-context) .folder-svg {
   opacity: 0.92;
@@ -307,11 +497,38 @@ function onFolderDrop(folderId: string, e: DragEvent) {
   color: color-mix(in srgb, var(--gs-tree-accent) 55%, var(--gs-text-muted));
 }
 
+.folder-actions {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.05rem;
+}
+.icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.65rem;
+  height: 1.65rem;
+  padding: 0;
+  border: none;
+  border-radius: var(--gs-radius-sm);
+  background: transparent;
+  color: var(--gs-text-muted);
+  cursor: pointer;
+}
+.icon-btn:hover {
+  background: color-mix(in srgb, var(--gs-border) 45%, transparent);
+  color: var(--gs-text);
+}
+.icon-btn--danger:hover {
+  background: color-mix(in srgb, var(--gs-danger) 12%, transparent);
+  color: var(--gs-danger);
+}
+
 .sheet-hit {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.4rem;
+  align-items: center;
+  gap: 0.35rem;
   width: 100%;
   padding: 0.4rem 0.5rem 0.4rem 0.35rem;
   border: none;
@@ -334,6 +551,17 @@ function onFolderDrop(folderId: string, e: DragEvent) {
   box-shadow: inset 0 0 0 1px var(--gs-primary-border);
   color: var(--gs-link);
   font-weight: 600;
+}
+.sheet-icon-wrap {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  color: var(--gs-text-muted);
+  opacity: 0.9;
+}
+.sheet-hit.active .sheet-icon-wrap {
+  color: var(--gs-link);
+  opacity: 1;
 }
 .sheet-title {
   flex: 1;
