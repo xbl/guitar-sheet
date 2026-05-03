@@ -1234,7 +1234,7 @@ onUnmounted(() => {
 .text-wrap {
   padding: 0.75rem 1rem 1rem;
   flex: 1 1 auto;
-  min-height: 0;
+  min-height: min-content;
   display: flex;
   flex-direction: column;
 }
@@ -1243,11 +1243,11 @@ onUnmounted(() => {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  min-height: 0;
+  min-height: min-content;
 }
 .text-body-drop-shell {
   flex: 1 1 auto;
-  min-height: 0;
+  min-height: min-content;
   display: flex;
   flex-direction: column;
   border-radius: var(--gs-radius-md);
@@ -1295,6 +1295,11 @@ onUnmounted(() => {
   color: var(--gs-text);
   caret-color: var(--gs-text);
 }
+/** 预览正文由外层 `.reader-scroll` 滚动，便于 `useAutoScroll` 驱动播放滚动 */
+.tab.text-preview {
+  overflow: visible;
+  min-height: min-content;
+}
 .text-preview {
   display: flex;
   flex-direction: column;
@@ -1302,7 +1307,6 @@ onUnmounted(() => {
   cursor: pointer;
   border-radius: var(--gs-radius-sm);
   flex: 1 1 auto;
-  min-height: 0;
 }
 .text-preview:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--gs-primary-border) 65%, transparent);

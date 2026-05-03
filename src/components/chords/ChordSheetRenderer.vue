@@ -116,6 +116,7 @@ function isChordAnchor(cell: ChordCell): boolean {
   font-size: inherit;
   color: var(--gs-text);
   line-height: 1.55;
+  padding-bottom: 0.75rem;
 }
 .chord-sheet--parallel .plain-line {
   white-space: normal;
