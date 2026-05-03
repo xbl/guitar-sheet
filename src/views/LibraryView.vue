@@ -48,6 +48,30 @@ const highlightDropRoot = ref(false)
 /** 谱库拖放后强制重载阅读区（路径变化） */
 const readerReloadNonce = ref(0)
 
+const SIDEBAR_COLLAPSED_KEY = "guitar-sheet.librarySidebarCollapsed"
+const sidebarCollapsed = ref(false)
+
+function readSidebarCollapsed(): boolean {
+  try {
+    return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "1"
+  } catch {
+    return false
+  }
+}
+
+function persistSidebarCollapsed() {
+  try {
+    localStorage.setItem(SIDEBAR_COLLAPSED_KEY, sidebarCollapsed.value ? "1" : "0")
+  } catch {
+    /* private mode / unavailable */
+  }
+}
+
+function toggleSidebarCollapsed() {
+  sidebarCollapsed.value = !sidebarCollapsed.value
+  persistSidebarCollapsed()
+}
+
 /** 指针拖动悬停：与 HTML5 dragover 无关，仅靠 mousemove 坐标 */
 function libraryPointerHover(clientX: number, clientY: number) {
   const el = document.elementFromPoint(clientX, clientY)
@@ -372,6 +396,7 @@ watch(selectedSheetId, (id) => {
 })
 
 onMounted(() => {
+  sidebarCollapsed.value = readSidebarCollapsed()
   void refresh()
   registerLibraryPointerUi(libraryPointerHover, libraryPointerDrop)
   document.addEventListener("dragend", onLibraryPointerCleanup)
@@ -385,73 +410,88 @@ onUnmounted(() => {
 
 <template>
   <div class="layout">
-    <aside class="sidebar">
-      <nav class="side-nav" aria-label="主导航">
-        <RouterLink to="/" class="side-nav-link" active-class="is-active">
-          <svg class="side-nav-icon" viewBox="0 0 24 24" aria-hidden="true">
-            <path
-              fill="currentColor"
-              d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"
-            />
-          </svg>
-          <span>谱库</span>
-        </RouterLink>
-        <RouterLink to="/settings" class="side-nav-link">
-          <svg class="side-nav-icon" viewBox="0 0 24 24" aria-hidden="true">
-            <path
-              fill="currentColor"
-              d="M19.14 12.94c.04-.31.06-.63.06-.94 0-.31-.02-.63-.06-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"
-            />
-          </svg>
-          <span>设置</span>
-        </RouterLink>
-      </nav>
-      <div class="side-divider" role="presentation" />
-      <div class="side-actions" aria-label="谱库操作">
-        <button
-          type="button"
-          class="side-action"
-          :disabled="creatingSheet"
-          @click="createNewSheet"
-        >
-          <svg class="side-action-icon" viewBox="0 0 24 24" aria-hidden="true">
-            <path
-              fill="currentColor"
-              d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.89 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm2 14h-3v3h-2v-3H8v-2h3v-3h2v3h3v2zm-3-7V3.5L18.5 9H13z"
-            />
-          </svg>
-          <span>{{ creatingSheet ? "创建中…" : "新建曲谱" }}</span>
-        </button>
-        <button type="button" class="side-action" @click="pickImport">
-          <svg class="side-action-icon" viewBox="0 0 24 24" aria-hidden="true">
-            <path
-              fill="currentColor"
-              d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z"
-            />
-          </svg>
-          <span>导入谱子</span>
-        </button>
-        <button type="button" class="side-action side-action-primary" @click="syncGitHub">
-          <svg class="side-action-icon" viewBox="0 0 24 24" aria-hidden="true">
-            <path
-              fill="currentColor"
-              d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"
-            />
-          </svg>
-          <span>与 GitHub 同步</span>
-        </button>
-        <button type="button" class="side-action" @click="refresh">
-          <svg class="side-action-icon" viewBox="0 0 24 24" aria-hidden="true">
-            <path
-              fill="currentColor"
-              d="M17.65 6.35A7.958 7.958 0 0 0 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0 1 12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"
-            />
-          </svg>
-          <span>刷新</span>
-        </button>
+    <aside class="sidebar" :class="{ 'is-collapsed': sidebarCollapsed }">
+      <div class="sidebar-top">
+        <nav class="side-nav" aria-label="主导航">
+          <RouterLink
+            to="/"
+            class="side-nav-link"
+            active-class="is-active"
+            title="谱库"
+          >
+            <svg class="side-nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                fill="currentColor"
+                d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"
+              />
+            </svg>
+            <span>谱库</span>
+          </RouterLink>
+          <RouterLink to="/settings" class="side-nav-link" title="设置">
+            <svg class="side-nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                fill="currentColor"
+                d="M19.14 12.94c.04-.31.06-.63.06-.94 0-.31-.02-.63-.06-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"
+              />
+            </svg>
+            <span>设置</span>
+          </RouterLink>
+        </nav>
+        <div class="side-divider" role="presentation" />
+        <div class="side-actions" aria-label="谱库操作">
+          <button
+            type="button"
+            class="side-action"
+            :disabled="creatingSheet"
+            :title="creatingSheet ? '创建中…' : '新建曲谱'"
+            @click="createNewSheet"
+          >
+            <svg class="side-action-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                fill="currentColor"
+                d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.89 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm2 14h-3v3h-2v-3H8v-2h3v-3h2v3h3v2zm-3-7V3.5L18.5 9H13z"
+              />
+            </svg>
+            <span>{{ creatingSheet ? "创建中…" : "新建曲谱" }}</span>
+          </button>
+          <button type="button" class="side-action" title="导入谱子" @click="pickImport">
+            <svg class="side-action-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                fill="currentColor"
+                d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z"
+              />
+            </svg>
+            <span>导入谱子</span>
+          </button>
+          <button
+            type="button"
+            class="side-action side-action-primary"
+            title="与 GitHub 同步"
+            @click="syncGitHub"
+          >
+            <svg class="side-action-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                fill="currentColor"
+                d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"
+              />
+            </svg>
+            <span>与 GitHub 同步</span>
+          </button>
+          <button type="button" class="side-action" title="刷新列表" @click="refresh">
+            <svg class="side-action-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                fill="currentColor"
+                d="M17.65 6.35A7.958 7.958 0 0 0 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0 1 12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"
+              />
+            </svg>
+            <span>刷新</span>
+          </button>
+        </div>
       </div>
-      <div class="side-divider" role="presentation" />
-      <label class="sidebar-search">
+
+      <div v-show="!sidebarCollapsed" class="sidebar-body">
+        <div class="side-divider" role="presentation" />
+        <label class="sidebar-search">
         <span class="sidebar-search-label">搜索</span>
         <input
           v-model="searchQuery"
@@ -511,6 +551,44 @@ onUnmounted(() => {
         <button type="button" @click="createFolder">创建</button>
       </div>
       <p class="hint small">创建位置取决于当前选中的文件夹（蓝色高亮）。未选中则在根目录创建。</p>
+      </div>
+
+      <div class="sidebar-footer">
+        <button
+          type="button"
+          class="sidebar-collapse-toggle"
+          :title="sidebarCollapsed ? '展开侧栏' : '收起侧栏'"
+          :aria-label="sidebarCollapsed ? '展开侧栏' : '收起侧栏'"
+          :aria-expanded="!sidebarCollapsed"
+          @click="toggleSidebarCollapsed"
+        >
+          <svg
+            v-if="sidebarCollapsed"
+            class="sidebar-collapse-icon"
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+          >
+            <path
+              fill="currentColor"
+              d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"
+            />
+          </svg>
+          <svg
+            v-else
+            class="sidebar-collapse-icon"
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+          >
+            <path
+              fill="currentColor"
+              d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"
+            />
+          </svg>
+          <span class="sidebar-collapse-label">{{
+            sidebarCollapsed ? "展开" : "收起"
+          }}</span>
+        </button>
+      </div>
     </aside>
 
     <main class="main">
@@ -556,14 +634,87 @@ onUnmounted(() => {
 }
 .sidebar {
   width: min(20rem, 42vw);
+  min-width: min(20rem, 42vw);
   flex-shrink: 0;
-  padding: 0.65rem 0.55rem 1rem;
+  padding: 0.65rem 0.55rem 0.5rem;
   border-right: 1px solid var(--gs-border);
   background: var(--gs-bg-muted);
   display: flex;
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
+  transition:
+    width 0.2s ease,
+    min-width 0.2s ease,
+    padding 0.2s ease;
+}
+.sidebar.is-collapsed {
+  width: 3.35rem;
+  min-width: 3.35rem;
+  padding-left: 0.35rem;
+  padding-right: 0.35rem;
+}
+.sidebar-top {
+  flex-shrink: 0;
+}
+.sidebar-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.sidebar-footer {
+  flex-shrink: 0;
+  margin-top: auto;
+  padding-top: 0.4rem;
+  border-top: 1px solid var(--gs-border);
+}
+.sidebar-collapse-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.4rem 0.45rem;
+  border-radius: var(--gs-radius-sm);
+  border: 1px solid var(--gs-border);
+  background: var(--gs-bg-surface);
+  color: var(--gs-text-muted);
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition:
+    color 0.12s ease,
+    border-color 0.12s ease,
+    background 0.12s ease;
+}
+.sidebar-collapse-toggle:hover {
+  color: var(--gs-text);
+  border-color: var(--gs-text-muted);
+  background: var(--gs-bg-muted);
+}
+.sidebar-collapse-icon {
+  width: 1.1rem;
+  height: 1.1rem;
+  flex-shrink: 0;
+}
+.sidebar.is-collapsed .sidebar-collapse-label {
+  display: none;
+}
+.sidebar.is-collapsed .sidebar-collapse-toggle {
+  padding: 0.45rem 0.3rem;
+}
+.sidebar.is-collapsed .side-nav-link,
+.sidebar.is-collapsed .side-action {
+  justify-content: center;
+  gap: 0;
+  padding-left: 0.35rem;
+  padding-right: 0.35rem;
+}
+.sidebar.is-collapsed .side-nav-link span,
+.sidebar.is-collapsed .side-action span {
+  display: none;
 }
 .side-nav {
   display: flex;
@@ -740,7 +891,7 @@ onUnmounted(() => {
 .tree-scroll {
   flex: 1;
   overflow: auto;
-  min-height: 8rem;
+  min-height: 6rem;
   margin: 0.5rem 0;
   padding: 0.35rem 0.25rem;
   padding-right: 0.15rem;
