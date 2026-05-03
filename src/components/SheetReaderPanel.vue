@@ -864,7 +864,18 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <div ref="readerBodyRef" class="reader-scroll">
+      <div
+        ref="readerBodyRef"
+        class="reader-scroll"
+        :class="{
+          'reader-scroll--file-drop-hover':
+            bodyDropFileHighlight && meta?.kind === 'text',
+        }"
+        @dragenter="onBodyDragEnter"
+        @dragleave="onBodyDragLeave"
+        @dragover="onBodyDragOver"
+        @drop="onBodyDrop"
+      >
         <p v-if="error" class="err">{{ error }}</p>
 
         <div v-else-if="!sheetId" class="empty">
@@ -880,7 +891,6 @@ onUnmounted(() => {
           :text-preview-segments="textPreviewSegments"
           :preview-urls="previewUrls"
           :pdf-preview-urls="pdfPreviewUrls"
-          :body-drop-file-highlight="bodyDropFileHighlight"
           :font-px="fontPx"
           :line-height="TEXT_LINE_HEIGHT"
           :transpose-semitones="chordPrefs.transposeSemitones"
@@ -890,10 +900,6 @@ onUnmounted(() => {
           @paste="onTextPaste"
           @blur="onTextBlur"
           @enter-edit="enterBodyEdit"
-          @dragenter="onBodyDragEnter"
-          @dragleave="onBodyDragLeave"
-          @dragover="onBodyDragOver"
-          @drop="onBodyDrop"
         />
 
         <ImageSheetReader v-else-if="meta.kind === 'image'" :img-src="imgSrc" />
@@ -1073,6 +1079,12 @@ onUnmounted(() => {
   overflow-y: auto;
   display: flex;
   flex-direction: column;
+}
+.reader-scroll--file-drop-hover {
+  background: var(--gs-drop-zone-active-bg);
+  box-shadow:
+    inset 0 0 0 2px var(--gs-drop-zone-active-shadow),
+    inset 0 0 0 3px color-mix(in srgb, var(--gs-drop-zone-active-border) 55%, transparent);
 }
 .err {
   color: var(--gs-danger);

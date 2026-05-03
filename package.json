@@ -1,6 +1,6 @@
 {
-  "name": "tauri-app",
-  "description": "Guitar Sheet 谱酷 — 初学者吉他谱桌面应用（Tauri + Vue）",
+  "name": "guitar-sheet",
+  "description": "Guitar Sheet 谱酷 — 初学者吉他谱桌面应用",
   "private": true,
   "version": "0.1.0",
   "type": "module",

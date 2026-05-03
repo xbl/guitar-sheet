@@ -13,7 +13,6 @@ const props = withDefaults(
     textPreviewSegments: TextPreviewSeg[]
     previewUrls: Record<string, string>
     pdfPreviewUrls: Record<string, string>
-    bodyDropFileHighlight: boolean
     fontPx: number
     /** 正文行高倍数 */
     lineHeight?: number
@@ -29,10 +28,6 @@ const emit = defineEmits<{
   paste: [e: ClipboardEvent]
   blur: []
   enterEdit: []
-  dragenter: [e: DragEvent]
-  dragleave: [e: DragEvent]
-  dragover: [e: DragEvent]
-  drop: [e: DragEvent]
 }>()
 
 const textAreaRef = ref<HTMLTextAreaElement | null>(null)
@@ -52,16 +47,9 @@ const lhStr = computed(() => String(props.lineHeight))
         <code>[和弦]</code> 内嵌格式。
       </p>
       <p v-else class="paste-hint paste-hint--preview">
-        可将图片或 PDF 拖入此处，自动插入到正文末尾并保存（无需先点进编辑）。
+        可将图片或 PDF 拖入下方阅读区任意位置（含空白处或预览中的图片旁），自动插入到正文末尾并保存（无需先点进编辑）。
       </p>
-      <div
-        class="text-body-drop-shell"
-        :class="{ 'text-body-drop-shell--active': bodyDropFileHighlight }"
-        @dragenter="emit('dragenter', $event)"
-        @dragleave="emit('dragleave', $event)"
-        @dragover="emit('dragover', $event)"
-        @drop="emit('drop', $event)"
-      >
+      <div class="text-body-drop-shell">
         <textarea
           v-if="editingText"
           ref="textAreaRef"
@@ -97,6 +85,7 @@ const lhStr = computed(() => String(props.lineHeight))
             <figure v-else-if="seg.type === 'img'" class="inline-img-wrap">
               <img
                 v-if="previewUrls[seg.file]"
+                draggable="false"
                 :src="previewUrls[seg.file]"
                 :alt="seg.file"
                 class="inline-img"
@@ -144,12 +133,6 @@ const lhStr = computed(() => String(props.lineHeight))
   transition:
     box-shadow 0.16s ease,
     background 0.16s ease;
-}
-.text-body-drop-shell--active {
-  background: var(--gs-drop-zone-active-bg);
-  box-shadow:
-    0 0 0 2px var(--gs-drop-zone-active-shadow),
-    inset 0 0 0 1px color-mix(in srgb, var(--gs-drop-zone-active-border) 55%, transparent);
 }
 @media (prefers-reduced-motion: reduce) {
   .text-body-drop-shell {
