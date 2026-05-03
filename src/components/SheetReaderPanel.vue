@@ -630,7 +630,12 @@ onUnmounted(() => {
             @keydown.enter.prevent="onTitleEnter"
             @blur="onTitleBlur"
           />
-          <button type="button" class="ghost" @mousedown.prevent @click="cancelTitleEdit">
+          <button
+            type="button"
+            class="title-edit-cancel"
+            @mousedown.prevent
+            @click="cancelTitleEdit"
+          >
             取消
           </button>
         </template>
@@ -850,11 +855,23 @@ onUnmounted(() => {
 .title-input {
   flex: 1;
   min-width: 8rem;
-  padding: 0.35rem 0.5rem;
+  box-sizing: border-box;
+  padding: 0.4rem 0.5rem;
   font-size: 1rem;
   border: 1px solid var(--gs-border);
   border-radius: var(--gs-radius-sm);
   background: var(--gs-bg-surface);
+  color: inherit;
+}
+.title-edit-cancel {
+  flex-shrink: 0;
+  cursor: pointer;
+  padding: 0.4rem 0.75rem;
+  border-radius: var(--gs-radius-sm);
+  border: 1px solid var(--gs-border);
+  background: var(--gs-bg-muted);
+  color: var(--gs-text);
+  font-size: 0.9rem;
 }
 .ghost {
   border: none;

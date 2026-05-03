@@ -627,7 +627,7 @@ onUnmounted(() => {
           maxlength="80"
           @keydown.enter="createFolder"
         />
-        <button type="button" @click="createFolder">创建</button>
+        <button type="button" class="primary" @click="createFolder">创建</button>
       </div>
       </div>
 
@@ -719,8 +719,18 @@ onUnmounted(() => {
             @keydown.enter.prevent="submitFolderLinePrompt"
           />
           <div class="lib-line-prompt-actions">
-            <button type="button" @click="cancelFolderLinePrompt">取消</button>
-            <button type="button" class="lib-line-prompt-primary" @click="submitFolderLinePrompt">
+            <button
+              type="button"
+              class="lib-line-prompt-btn lib-line-prompt-cancel"
+              @click="cancelFolderLinePrompt"
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              class="lib-line-prompt-btn lib-line-prompt-primary"
+              @click="submitFolderLinePrompt"
+            >
               确定
             </button>
           </div>
@@ -998,19 +1008,17 @@ onUnmounted(() => {
 .new-folder input {
   flex: 1;
   min-width: 0;
-  padding: 0.35rem 0.45rem;
+  box-sizing: border-box;
+  padding: 0.4rem 0.5rem;
   font-size: 0.85rem;
   border: 1px solid var(--gs-border);
   border-radius: var(--gs-radius-sm);
-}
-.new-folder button {
-  flex-shrink: 0;
-  padding: 0.35rem 0.5rem;
-  font-size: 0.85rem;
-  cursor: pointer;
-  border-radius: var(--gs-radius-sm);
-  border: 1px solid var(--gs-border);
   background: var(--gs-bg-surface);
+  color: inherit;
+}
+.new-folder button.primary {
+  flex-shrink: 0;
+  font-size: 0.85rem;
 }
 .main {
   flex: 1;
@@ -1113,12 +1121,12 @@ button:disabled {
 .lib-line-prompt-input {
   width: 100%;
   box-sizing: border-box;
-  padding: 0.45rem 0.55rem;
-  font-size: 0.95rem;
+  padding: 0.4rem 0.5rem;
+  font-size: 0.9rem;
   border: 1px solid var(--gs-border, #ccc);
   border-radius: var(--gs-radius-sm, 6px);
-  background: var(--gs-bg-muted, #f5f5f5);
-  color: var(--gs-text, #222);
+  background: var(--gs-bg-surface, #fff);
+  color: inherit;
 }
 .lib-line-prompt-actions {
   display: flex;
@@ -1126,18 +1134,21 @@ button:disabled {
   gap: 0.5rem;
   margin-top: 0.85rem;
 }
-.lib-line-prompt-actions button {
+.lib-line-prompt-btn {
   cursor: pointer;
-  padding: 0.35rem 0.75rem;
+  padding: 0.4rem 0.75rem;
   border-radius: var(--gs-radius-sm, 6px);
   border: 1px solid var(--gs-border, #ccc);
+  font-size: 0.9rem;
+}
+.lib-line-prompt-cancel {
   background: var(--gs-bg-muted, #f0f0f0);
-  font-size: 0.88rem;
+  color: var(--gs-text, #222);
 }
 .lib-line-prompt-primary {
-  border-color: var(--gs-primary-border, #6b8cff) !important;
-  background: var(--gs-primary-bg, #eef3ff) !important;
-  color: var(--gs-link, #234);
+  border-color: var(--gs-primary-border, #6b8cff);
+  background: var(--gs-primary-bg, #eef3ff);
+  color: var(--gs-text, #222);
   font-weight: 600;
 }
 </style>
