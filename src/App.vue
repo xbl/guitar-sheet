@@ -84,7 +84,7 @@ onUnmounted(() => {
   <div id="shell">
     <header class="chrome">
       <div class="chrome-left">
-        <RouterLink to="/" class="brand">Guitar Sheet</RouterLink>
+        <RouterLink to="/" class="brand">Guitar Sheet 谱酷</RouterLink>
         <span v-if="routeLabel" class="route-label">{{ routeLabel }}</span>
       </div>
       <div class="chrome-right">

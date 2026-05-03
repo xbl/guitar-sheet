@@ -1,4 +1,4 @@
-# Guitar Sheet（谱酷）
+# Guitar Sheet 谱酷
 
 这是一款**面向初学者**的吉他谱桌面应用，用熟悉的界面帮你入门看谱、练谱。技术栈为 **Tauri 2 + Vue 3 + TypeScript**。
 
