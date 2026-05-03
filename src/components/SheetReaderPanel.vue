@@ -42,23 +42,21 @@ const props = withDefaults(
     sheetId: string | null
     variant?: "embed" | "page"
     /**
-     * 若与当前载入的曲谱 id 相同，本次载入完成后自动进入标题与正文编辑（用于新建后打开）。
-     * 处理后会触发 `pendingTextEditConsumed` 以便父级清空。
-     */
-    pendingTextEditForSheetId?: string | null
-    /**
      * Parent increments after谱库树拖放移动（同 sheetId 时磁盘路径会变）。
      */
     reloadNonce?: number
   }>(),
-  { variant: "embed", pendingTextEditForSheetId: null, reloadNonce: 0 },
+  { variant: "embed", reloadNonce: 0 },
 )
 
 const emit = defineEmits<{
   deleted: [id: string]
-  pendingTextEditConsumed: []
   /** 标题已在后端更新；父级应同步谱库列表中的 display_title */
   titleRenamed: [{ id: string; title: string }]
+  /**
+   * 当前文本谱是否为「未命名 + 空正文」可丢弃草稿（切换树选中时父级可自动删除）。
+   */
+  emptyDraftChange: [id: string | null]
 }>()
 
 const router = useRouter()
@@ -116,6 +114,23 @@ watch(
 watch(editingText, (ed) => {
   if (ed) practicePlaying.value = false
 })
+
+/** 未命名且正文为空：切换左侧树其他项时由父级删除该谱 */
+const abandonableEmptySheetId = computed(() => {
+  if (!props.sheetId || !meta.value || meta.value.kind !== "text") return null
+  const title = titleEditing.value
+    ? titleDraft.value.trim()
+    : meta.value.display_title.trim()
+  const body = (editingText.value ? textDraft.value : textBody.value).trim()
+  if (title === "未命名" && body === "") return props.sheetId
+  return null
+})
+
+watch(
+  abandonableEmptySheetId,
+  (v) => emit("emptyDraftChange", v),
+  { immediate: true },
+)
 
 useAutoScroll({
   scrollParentRef: readerBodyRef,
@@ -311,18 +326,6 @@ async function load() {
       textBody.value = await readTextFile(path)
       textBaseline.value = textBody.value
       textDraft.value = textBody.value
-      if (
-        props.pendingTextEditForSheetId &&
-        props.pendingTextEditForSheetId === m.id
-      ) {
-        titleDraft.value = m.display_title
-        titleEditing.value = true
-        editingText.value = true
-        emit("pendingTextEditConsumed")
-        await nextTick()
-        titleInputRef.value?.focus()
-        titleInputRef.value?.select()
-      }
     } else if (m.kind === "image") {
       await loadImageSrc(path)
     } else if (m.kind === "pdf") {
@@ -359,19 +362,11 @@ async function saveTextBody() {
   }
 }
 
-function onTextActionPointerDown(e: PointerEvent) {
-  if (editingText.value) {
-    e.preventDefault()
-  }
-}
-
-function onEditToolbarClick() {
-  if (editingText.value) {
-    void commitTextEdit()
-  } else {
-    textDraft.value = textBaseline.value
-    editingText.value = true
-  }
+function enterBodyEdit() {
+  if (!meta.value || meta.value.kind !== "text" || editingText.value) return
+  textDraft.value = textBaseline.value
+  editingText.value = true
+  void nextTick(() => textAreaRef.value?.focus())
 }
 
 function startTitleEdit() {
@@ -609,7 +604,7 @@ onUnmounted(() => {
             {{ meta.display_title }}
           </button>
           <button
-            v-if="variant === 'embed'"
+            v-if="variant === 'page'"
             type="button"
             class="ghost danger"
             @click="removeSheet"
@@ -631,15 +626,6 @@ onUnmounted(() => {
             取消
           </button>
         </template>
-      </div>
-      <div v-if="meta?.kind === 'text'" class="text-actions">
-        <button
-          type="button"
-          @pointerdown="onTextActionPointerDown"
-          @click="onEditToolbarClick"
-        >
-          {{ editingText ? "退出编辑" : "编辑正文" }}
-        </button>
       </div>
       <details v-if="meta?.kind === 'pdf'" class="reader-overflow-narrow">
         <summary class="overflow-sum" title="翻页">⋯</summary>
@@ -678,7 +664,7 @@ onUnmounted(() => {
           <div class="text-sheet-layout">
             <div class="text-sheet-main">
               <p v-if="editingText" class="paste-hint">
-                提示：Ctrl+V 可粘贴图片；失焦或点「退出编辑」自动保存正文（空白不保存）。若使用「和弦在上、歌词在下」的文本排版，退出编辑时会自动转为
+                提示：Ctrl+V 可粘贴图片；失焦自动保存正文（空白不保存）。若使用「和弦在上、歌词在下」的文本排版，退出编辑时会自动转为
                 <code>[和弦]</code> 内嵌格式。
               </p>
               <textarea
@@ -693,7 +679,12 @@ onUnmounted(() => {
               <div
                 v-else
                 class="tab text-preview"
+                role="button"
+                tabindex="0"
+                title="点击编辑正文"
                 :style="{ fontSize: fontPx + 'px', lineHeight: String(TEXT_LINE_HEIGHT) }"
+                @click="enterBodyEdit"
+                @keydown.enter.prevent="enterBodyEdit"
               >
                 <template v-for="(seg, i) in textPreviewSegments" :key="i">
                   <ChordSheetRenderer
@@ -868,13 +859,6 @@ onUnmounted(() => {
 .ghost.danger {
   color: var(--gs-danger);
 }
-.text-actions {
-  display: flex;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-  width: 100%;
-  justify-content: flex-end;
-}
 .back {
   border: none;
   background: none;
@@ -967,6 +951,12 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+  cursor: pointer;
+  border-radius: var(--gs-radius-sm);
+}
+.text-preview:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--gs-primary-border) 65%, transparent);
+  outline-offset: 2px;
 }
 .text-chunk {
   margin: 0;

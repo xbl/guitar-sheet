@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from "vue"
+import { computed, onMounted, onUnmounted, ref } from "vue"
 import { RouterLink } from "vue-router"
 import { invoke } from "@tauri-apps/api/core"
 import { open } from "@tauri-apps/plugin-dialog"
@@ -36,8 +36,42 @@ const newFolderName = ref("")
 const collapsedFolders = ref<Record<string, boolean>>({})
 
 const creatingSheet = ref(false)
-/** 新建曲谱：与子组件约定 id，载入完成后自动进入正文编辑 */
-const pendingTextEditSheetId = ref<string | null>(null)
+
+/** 阅读区上报：当前文本谱是否为「未命名 + 空正文」可自动删除 */
+const readerEmptyDraftId = ref<string | null>(null)
+
+function onEmptyDraftChange(id: string | null) {
+  readerEmptyDraftId.value = id
+}
+
+async function abandonIfLeavingDraft(prevSheetId: string) {
+  if (readerEmptyDraftId.value !== prevSheetId) return
+  try {
+    await invoke("delete_sheet", { id: prevSheetId })
+    readerEmptyDraftId.value = null
+    selectedSheetId.value = null
+    await refreshList()
+    readerReloadNonce.value++
+  } catch (e) {
+    showToast(String(e))
+  }
+}
+
+async function onSelectSheet(id: string) {
+  const prev = selectedSheetId.value
+  if (prev && prev !== id) {
+    await abandonIfLeavingDraft(prev)
+  }
+  selectedSheetId.value = id
+}
+
+async function onSelectFolder(fid: string) {
+  const prev = selectedSheetId.value
+  if (prev) {
+    await abandonIfLeavingDraft(prev)
+  }
+  contextFolderId.value = fid
+}
 
 const createFolderParentId = computed(() => contextFolderId.value)
 
@@ -260,9 +294,6 @@ function onSheetTitleRenamed(payload: { id: string; title: string }) {
 }
 
 function onSheetDeleted(id: string) {
-  if (pendingTextEditSheetId.value === id) {
-    pendingTextEditSheetId.value = null
-  }
   if (selectedSheetId.value === id) {
     selectedSheetId.value = null
   }
@@ -280,9 +311,7 @@ async function createNewSheet() {
       initialContent: null,
     })
     await refresh()
-    pendingTextEditSheetId.value = meta.id
     selectedSheetId.value = meta.id
-    syncMsg.value = "已新建文本曲谱，标题与正文已进入编辑。"
   } catch (e) {
     error.value = String(e)
   } finally {
@@ -373,8 +402,20 @@ function onSearchInput() {
   }, 300)
 }
 
-function onPendingTextEditConsumed() {
-  pendingTextEditSheetId.value = null
+async function onDeleteSheet(payload: { id: string; title: string }) {
+  if (!confirm(`删除「${payload.title}」？本地文件会一并删除。`)) return
+  error.value = null
+  try {
+    await invoke("delete_sheet", { id: payload.id })
+    if (selectedSheetId.value === payload.id) {
+      selectedSheetId.value = null
+    }
+    readerEmptyDraftId.value = null
+    await refresh()
+    readerReloadNonce.value++
+  } catch (e) {
+    showToast(String(e))
+  }
 }
 
 function toggleFolderCollapse(id: string) {
@@ -389,12 +430,6 @@ function onLibraryPointerCleanup() {
   clearDropHighlight()
   clearLibraryPointerPayload()
 }
-
-watch(selectedSheetId, (id) => {
-  if (pendingTextEditSheetId.value !== null && id !== pendingTextEditSheetId.value) {
-    pendingTextEditSheetId.value = null
-  }
-})
 
 onMounted(() => {
   sidebarCollapsed.value = readSidebarCollapsed()
@@ -517,12 +552,13 @@ onUnmounted(() => {
             :context-folder-id="contextFolderId"
             :collapsed-folders="collapsedFolders"
             :highlight-drop-folder-id="highlightDropFolderId"
-            @select-sheet="selectedSheetId = $event"
-            @select-folder="contextFolderId = $event"
+            @select-sheet="onSelectSheet"
+            @select-folder="onSelectFolder"
             @toggle-folder-collapse="toggleFolderCollapse"
             @folder-rename="onFolderRename"
             @create-subfolder="onCreateSubfolder"
             @delete-folder="onDeleteFolder"
+            @delete-sheet="onDeleteSheet"
           />
         </template>
         <p v-else class="muted small">暂无文件夹与曲谱。可先导入或创建文件夹。</p>
@@ -584,11 +620,10 @@ onUnmounted(() => {
       <div class="reader-host">
         <SheetReaderPanel
           :sheet-id="selectedSheetId"
-          :pending-text-edit-for-sheet-id="pendingTextEditSheetId"
           :reload-nonce="readerReloadNonce"
           variant="embed"
           @deleted="onSheetDeleted"
-          @pending-text-edit-consumed="onPendingTextEditConsumed"
+          @empty-draft-change="onEmptyDraftChange"
           @title-renamed="onSheetTitleRenamed"
         />
       </div>

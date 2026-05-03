@@ -28,6 +28,7 @@ const emit = defineEmits<{
   folderRename: [payload: { id: string; name: string }]
   createSubfolder: [parentId: string]
   deleteFolder: [payload: { id: string; name: string }]
+  deleteSheet: [payload: { id: string; title: string }]
 }>()
 
 const DRAG_THRESHOLD_PX = 6
@@ -105,6 +106,12 @@ function onFolderHitClick(row: LibraryTreeRow & { kind: "folder" }, e: MouseEven
     return
   }
   emit("selectFolder", row.id)
+}
+
+function onDeleteSheetClick(row: LibraryTreeRow & { kind: "sheet" }, e: MouseEvent) {
+  e.preventDefault()
+  e.stopPropagation()
+  emit("deleteSheet", { id: row.id, title: row.title })
 }
 
 </script>
@@ -283,6 +290,7 @@ function onFolderHitClick(row: LibraryTreeRow & { kind: "folder" }, e: MouseEven
           @folder-rename="$emit('folderRename', $event)"
           @create-subfolder="$emit('createSubfolder', $event)"
           @delete-folder="$emit('deleteFolder', $event)"
+          @delete-sheet="$emit('deleteSheet', $event)"
         />
       </li>
 
@@ -291,34 +299,63 @@ function onFolderHitClick(row: LibraryTreeRow & { kind: "folder" }, e: MouseEven
         class="tree-node tree-node--sheet"
         role="treeitem"
       >
-        <button
-          type="button"
-          class="sheet-hit"
-          :class="{ active: selectedSheetId === row.id }"
-          @mousedown="onSheetRowPointerDown(row, $event)"
-          @click="onSheetRowClick(row, $event)"
-        >
-          <span class="sheet-icon-wrap" aria-hidden="true">
-            <svg
-              class="sheet-svg"
-              width="17"
-              height="17"
-              viewBox="0 0 24 24"
-              fill="none"
+        <div class="sheet-line">
+          <button
+            type="button"
+            class="sheet-hit"
+            :class="{ active: selectedSheetId === row.id }"
+            @mousedown="onSheetRowPointerDown(row, $event)"
+            @click="onSheetRowClick(row, $event)"
+          >
+            <span class="sheet-icon-wrap" aria-hidden="true">
+              <svg
+                class="sheet-svg"
+                width="17"
+                height="17"
+                viewBox="0 0 24 24"
+                fill="none"
+              >
+                <path
+                  d="M14 2H8a2 2 0 00-2 2v16a2 2 0 002 2h8a2 2 0 002-2V8l-6-6z"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linejoin="round"
+                />
+                <path d="M14 2v6h6" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" />
+                <path d="M8 14h8M8 17h5" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" />
+              </svg>
+            </span>
+            <span class="sheet-title">{{ row.title }}</span>
+            <span class="sheet-kind">{{ row.sheetKind }}</span>
+          </button>
+          <div
+            class="sheet-actions"
+            @click.stop
+            @mousedown.stop
+            @pointerdown.stop
+          >
+            <button
+              type="button"
+              class="icon-btn icon-btn--danger"
+              draggable="false"
+              title="删除曲谱"
+              aria-label="删除曲谱"
+              @click.stop="onDeleteSheetClick(row, $event)"
+              @mousedown.stop
+              @pointerdown.stop
             >
-              <path
-                d="M14 2H8a2 2 0 00-2 2v16a2 2 0 002 2h8a2 2 0 002-2V8l-6-6z"
-                stroke="currentColor"
-                stroke-width="1.5"
-                stroke-linejoin="round"
-              />
-              <path d="M14 2v6h6" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" />
-              <path d="M8 14h8M8 17h5" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" />
-            </svg>
-          </span>
-          <span class="sheet-title">{{ row.title }}</span>
-          <span class="sheet-kind">{{ row.sheetKind }}</span>
-        </button>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path
+                  d="M4 7h16M10 11v6M14 11v6M6 7l1 14h10l1-14M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </button>
+          </div>
+        </div>
       </li>
     </template>
   </ul>
@@ -344,6 +381,19 @@ function onFolderHitClick(row: LibraryTreeRow & { kind: "folder" }, e: MouseEven
 }
 .tree-node--sheet {
   margin: 0.08rem 0;
+}
+.sheet-line {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+  min-height: 2.1rem;
+  padding: 0.1rem 0.35rem 0.1rem 0.25rem;
+  border-radius: var(--gs-radius-md);
+}
+.sheet-actions {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
 }
 
 .folder-line {
@@ -529,7 +579,8 @@ function onFolderHitClick(row: LibraryTreeRow & { kind: "folder" }, e: MouseEven
   display: flex;
   align-items: center;
   gap: 0.35rem;
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   padding: 0.4rem 0.5rem 0.4rem 0.35rem;
   border: none;
   border-radius: var(--gs-radius-sm);
