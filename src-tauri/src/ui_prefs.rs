@@ -8,10 +8,10 @@ const FILE_NAME: &str = "ui_prefs.json";
 /// Only built-in themes accepted until user override import exists.
 pub fn normalize_theme_id(id: &str) -> String {
     let t = id.trim();
-    if t == "light-paper" {
+    if t == "light-paper" || t == "dark-app" {
         t.to_string()
     } else {
-        "light-paper".to_string()
+        "dark-app".to_string()
     }
 }
 
@@ -25,7 +25,7 @@ pub struct UiPrefs {
 }
 
 fn default_theme() -> String {
-    "light-paper".to_string()
+    "dark-app".to_string()
 }
 
 impl Default for UiPrefs {

@@ -8,7 +8,6 @@ import type { UiPrefs, UiPrefsPatch } from "./types/uiPrefs"
 
 const route = useRoute()
 const alwaysOnTop = ref(false)
-const fullscreen = ref(false)
 const pinError = ref<string | null>(null)
 
 let unlistenFocus: (() => void) | null = null
@@ -35,7 +34,7 @@ async function applyAlwaysOnTopFromState() {
 
 async function loadPrefs() {
   const prefs = await invoke<UiPrefs>("get_ui_prefs")
-  document.documentElement.dataset.theme = prefs.themeId || "light-paper"
+  document.documentElement.dataset.theme = prefs.themeId || "dark-app"
   alwaysOnTop.value = prefs.alwaysOnTop
   const win = getCurrentWindow()
   try {
@@ -46,7 +45,6 @@ async function loadPrefs() {
       pinError.value = "无法固定窗口（部分 Linux 桌面不支持）"
     }
   }
-  fullscreen.value = await win.isFullscreen()
 }
 
 async function togglePin() {
@@ -63,15 +61,8 @@ async function togglePin() {
   }
 }
 
-async function toggleFullscreen() {
-  const win = getCurrentWindow()
-  const next = !(await win.isFullscreen())
-  await win.setFullscreen(next)
-  fullscreen.value = next
-}
-
 onMounted(async () => {
-  document.documentElement.dataset.theme = "light-paper"
+  document.documentElement.dataset.theme = "dark-app"
   try {
     await loadPrefs()
   } catch {
@@ -107,21 +98,6 @@ onUnmounted(() => {
         <button
           type="button"
           class="icon-btn"
-          :title="fullscreen ? '退出全屏' : '全屏'"
-          :aria-pressed="fullscreen"
-          @click="toggleFullscreen"
-        >
-          <span class="sr-only">{{ fullscreen ? "退出全屏" : "全屏" }}</span>
-          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-            <path
-              fill="currentColor"
-              d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"
-            />
-          </svg>
-        </button>
-        <button
-          type="button"
-          class="icon-btn"
           :class="{ on: alwaysOnTop }"
           :aria-pressed="alwaysOnTop"
           :title="alwaysOnTop ? '取消固定在最前' : '固定在最前'"
@@ -135,7 +111,6 @@ onUnmounted(() => {
             />
           </svg>
         </button>
-        <RouterLink to="/settings" class="settings-link">设置</RouterLink>
       </div>
     </header>
     <p v-if="pinError" class="chrome-warn" role="status">{{ pinError }}</p>
@@ -211,20 +186,6 @@ body {
 .route-label {
   font-size: 0.8rem;
   color: var(--gs-text-muted);
-}
-.settings-link {
-  color: var(--gs-link);
-  text-decoration: none;
-  font-size: 0.9rem;
-  padding: 0.35rem 0.5rem;
-  border-radius: var(--gs-radius-sm);
-}
-.settings-link:hover {
-  color: var(--gs-link-hover);
-  background: var(--gs-bg-surface);
-}
-.settings-link.router-link-active {
-  font-weight: 600;
 }
 .icon-btn {
   display: inline-flex;

@@ -1,0 +1,26 @@
+/** Charcoal / productivity dark — use with `html[data-theme="dark-app"]` */
+[data-theme="dark-app"] {
+  --gs-bg-app: #1e2128;
+  --gs-bg-surface: #252830;
+  --gs-bg-muted: #2a2e36;
+  --gs-border: #3d4450;
+  --gs-text: #e6edf3;
+  --gs-text-muted: #8b949e;
+  --gs-link: #6ea8fe;
+  --gs-link-hover: #8bb7ff;
+  --gs-primary-border: #388bfd;
+  --gs-primary-bg: rgba(56, 139, 253, 0.12);
+  --gs-danger: #f85149;
+  --gs-chord: #ff7b72;
+  --gs-chord-fret: #4a535c;
+  --gs-chord-string: #6e7a87;
+  --gs-chord-dot: #c9d1d9;
+  --gs-success: #3fb950;
+  --gs-radius-sm: 6px;
+  --gs-radius-md: 8px;
+  --gs-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.35);
+  --gs-tree-accent: #58a6ff;
+  --gs-tree-accent-muted: #79b8ff;
+  --gs-tree-row-active: rgba(56, 139, 253, 0.14);
+  --gs-tree-chevron: #8b949e;
+}

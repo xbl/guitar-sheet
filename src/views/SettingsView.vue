@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
+import { RouterLink } from "vue-router";
 import { invoke } from "@tauri-apps/api/core";
 
 interface GitHubSettings {
@@ -88,6 +89,9 @@ onMounted(() => {
 
 <template>
   <div class="page">
+    <nav class="settings-nav">
+      <RouterLink to="/" class="back-link">← 谱库</RouterLink>
+    </nav>
     <h1 class="page-title">设置</h1>
 
     <p v-if="err" class="err">{{ err }}</p>
@@ -133,6 +137,18 @@ onMounted(() => {
   margin: 0 auto;
   width: 100%;
   padding: 1rem 1.25rem 2rem;
+}
+.settings-nav {
+  margin-bottom: 0.75rem;
+}
+.back-link {
+  font-size: 0.9rem;
+  color: var(--gs-link);
+  text-decoration: none;
+}
+.back-link:hover {
+  color: var(--gs-link-hover);
+  text-decoration: underline;
 }
 .page-title {
   margin: 0 0 1rem;

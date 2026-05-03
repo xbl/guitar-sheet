@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from "vue"
+import { RouterLink } from "vue-router"
 import { invoke } from "@tauri-apps/api/core"
 import { open } from "@tauri-apps/plugin-dialog"
 import LibrarySheetTree from "../components/LibrarySheetTree.vue"
@@ -385,7 +386,71 @@ onUnmounted(() => {
 <template>
   <div class="layout">
     <aside class="sidebar">
-      <h2 class="side-title">谱库</h2>
+      <nav class="side-nav" aria-label="主导航">
+        <RouterLink to="/" class="side-nav-link" active-class="is-active">
+          <svg class="side-nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              fill="currentColor"
+              d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"
+            />
+          </svg>
+          <span>谱库</span>
+        </RouterLink>
+        <RouterLink to="/settings" class="side-nav-link">
+          <svg class="side-nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              fill="currentColor"
+              d="M19.14 12.94c.04-.31.06-.63.06-.94 0-.31-.02-.63-.06-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"
+            />
+          </svg>
+          <span>设置</span>
+        </RouterLink>
+      </nav>
+      <div class="side-divider" role="presentation" />
+      <div class="side-actions" aria-label="谱库操作">
+        <button
+          type="button"
+          class="side-action"
+          :disabled="creatingSheet"
+          @click="createNewSheet"
+        >
+          <svg class="side-action-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              fill="currentColor"
+              d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.89 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm2 14h-3v3h-2v-3H8v-2h3v-3h2v3h3v2zm-3-7V3.5L18.5 9H13z"
+            />
+          </svg>
+          <span>{{ creatingSheet ? "创建中…" : "新建曲谱" }}</span>
+        </button>
+        <button type="button" class="side-action" @click="pickImport">
+          <svg class="side-action-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              fill="currentColor"
+              d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z"
+            />
+          </svg>
+          <span>导入谱子</span>
+        </button>
+        <button type="button" class="side-action side-action-primary" @click="syncGitHub">
+          <svg class="side-action-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              fill="currentColor"
+              d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"
+            />
+          </svg>
+          <span>与 GitHub 同步</span>
+        </button>
+        <button type="button" class="side-action" @click="refresh">
+          <svg class="side-action-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              fill="currentColor"
+              d="M17.65 6.35A7.958 7.958 0 0 0 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0 1 12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"
+            />
+          </svg>
+          <span>刷新</span>
+        </button>
+      </div>
+      <div class="side-divider" role="presentation" />
       <label class="sidebar-search">
         <span class="sidebar-search-label">搜索</span>
         <input
@@ -449,26 +514,6 @@ onUnmounted(() => {
     </aside>
 
     <main class="main">
-      <header class="toolbar">
-        <div class="actions">
-          <button type="button" :disabled="creatingSheet" @click="createNewSheet">
-            {{ creatingSheet ? "创建中…" : "新建曲谱" }}
-          </button>
-          <button type="button" @click="pickImport">导入谱子</button>
-          <button type="button" class="primary toolbar-sync-wide" @click="syncGitHub">
-            与 GitHub 同步
-          </button>
-          <button type="button" class="toolbar-sync-wide" @click="refresh">刷新</button>
-          <details class="toolbar-more-narrow">
-            <summary>更多 ▾</summary>
-            <div class="toolbar-more-body">
-              <button type="button" class="primary" @click="syncGitHub">与 GitHub 同步</button>
-              <button type="button" @click="refresh">刷新</button>
-            </div>
-          </details>
-        </div>
-      </header>
-
       <p v-if="error" class="err">{{ error }}</p>
       <p v-if="syncMsg" class="ok">{{ syncMsg }}</p>
 
@@ -510,9 +555,9 @@ onUnmounted(() => {
   align-items: stretch;
 }
 .sidebar {
-  width: min(19rem, 38vw);
+  width: min(20rem, 42vw);
   flex-shrink: 0;
-  padding: 0.75rem 0.65rem 1rem;
+  padding: 0.65rem 0.55rem 1rem;
   border-right: 1px solid var(--gs-border);
   background: var(--gs-bg-muted);
   display: flex;
@@ -520,11 +565,93 @@ onUnmounted(() => {
   min-height: 0;
   overflow: hidden;
 }
-.side-title {
-  margin: 0 0 0.35rem;
-  font-size: 1rem;
-  font-weight: 700;
+.side-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.side-nav-link {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.42rem 0.5rem;
+  border-radius: var(--gs-radius-sm);
+  border: 1px solid transparent;
+  font-size: 0.88rem;
+  font-weight: 500;
+  color: var(--gs-text-muted);
+  text-decoration: none;
+  transition:
+    background 0.12s ease,
+    color 0.12s ease;
+}
+.side-nav-link:hover {
   color: var(--gs-text);
+  background: var(--gs-bg-surface);
+}
+.side-nav-link.is-active {
+  color: var(--gs-link);
+  background: var(--gs-primary-bg);
+  border: 1px solid color-mix(in srgb, var(--gs-primary-border) 35%, transparent);
+}
+.side-nav-icon {
+  width: 1.15rem;
+  height: 1.15rem;
+  flex-shrink: 0;
+}
+.side-divider {
+  height: 1px;
+  margin: 0.55rem 0;
+  background: var(--gs-border);
+  flex-shrink: 0;
+}
+.side-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+  flex-shrink: 0;
+}
+.side-action {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.4rem 0.5rem;
+  border-radius: var(--gs-radius-sm);
+  border: 1px solid var(--gs-border);
+  background: var(--gs-bg-surface);
+  color: var(--gs-text);
+  font-size: 0.85rem;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 0.12s ease,
+    background 0.12s ease;
+}
+.side-action:hover {
+  border-color: var(--gs-text-muted);
+  background: var(--gs-bg-muted);
+}
+.side-action:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.side-action-primary {
+  font-weight: 600;
+  border-color: var(--gs-primary-border);
+  background: var(--gs-primary-bg);
+  color: var(--gs-link);
+}
+.side-action-primary:hover {
+  border-color: var(--gs-link);
+  background: color-mix(in srgb, var(--gs-primary-bg) 85%, var(--gs-bg-surface));
+}
+.side-action-icon {
+  width: 1.05rem;
+  height: 1.05rem;
+  flex-shrink: 0;
+  opacity: 0.9;
 }
 .sidebar-search {
   display: flex;
@@ -658,6 +785,7 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  background: var(--gs-bg-app);
 }
 .reader-host {
   flex: 1;
@@ -666,73 +794,14 @@ onUnmounted(() => {
   flex-direction: column;
   overflow: hidden;
 }
-.toolbar {
-  flex-shrink: 0;
-  padding: 0.5rem 0.75rem;
-  border-bottom: 1px solid var(--gs-border);
-  background: var(--gs-bg-surface);
-}
-.actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  align-items: center;
-  justify-content: flex-end;
-}
-.toolbar-more-narrow {
-  display: none;
-}
-.toolbar-more-narrow summary {
-  cursor: pointer;
-  list-style: none;
-  font-size: 0.88rem;
-  padding: 0.35rem 0.5rem;
-  border: 1px solid var(--gs-border);
-  border-radius: var(--gs-radius-sm);
-  background: var(--gs-bg-muted);
-  color: var(--gs-text);
-}
-.toolbar-more-narrow summary::-webkit-details-marker {
-  display: none;
-}
-.toolbar-more-body {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-  margin-top: 0.35rem;
-  padding: 0.35rem;
-  border: 1px solid var(--gs-border);
-  border-radius: var(--gs-radius-sm);
-  background: var(--gs-bg-surface);
-  min-width: 10rem;
-}
-.toolbar-more-body button {
-  width: 100%;
-}
-@media (max-width: 42rem) {
-  .toolbar-sync-wide {
-    display: none !important;
-  }
-  .toolbar-more-narrow {
-    display: block;
-  }
-}
-.actions button.primary {
-  font-weight: 600;
-}
-.actions a {
-  color: var(--gs-link);
-  text-decoration: none;
-  padding: 0.35rem 0.5rem;
-}
 .err {
   color: var(--gs-danger);
-  padding: 0 0.75rem;
+  padding: 0.5rem 0.75rem 0;
   flex-shrink: 0;
 }
 .ok {
   color: var(--gs-success);
-  padding: 0 0.75rem;
+  padding: 0 0.75rem 0.35rem;
   flex-shrink: 0;
 }
 .muted {
