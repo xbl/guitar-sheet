@@ -1,5 +1,12 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from "vue"
+import {
+  computed,
+  nextTick,
+  onMounted,
+  onUnmounted,
+  reactive,
+  ref,
+} from "vue"
 import { RouterLink } from "vue-router"
 import { invoke } from "@tauri-apps/api/core"
 import { open } from "@tauri-apps/plugin-dialog"
@@ -14,6 +21,7 @@ import {
   registerLibraryPointerUi,
   takeLibraryPointerPayload,
 } from "../utils/treeDnD"
+import { confirmTwice } from "../utils/confirmTwice"
 import { showToast } from "../utils/toast"
 
 const sheets = ref<SheetMeta[]>([])
@@ -206,11 +214,51 @@ async function onTreeMoveDrop(payload: {
   }
 }
 
+const folderLinePrompt = reactive({
+  open: false,
+  title: "",
+  value: "",
+})
+const folderLinePromptBackdropRef = ref<HTMLElement | null>(null)
+let folderLinePromptResolve: ((v: string | null) => void) | null = null
+
+function openFolderLinePrompt(title: string, initial: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    folderLinePromptResolve = resolve
+    folderLinePrompt.title = title
+    folderLinePrompt.value = initial
+    folderLinePrompt.open = true
+    void nextTick(() => {
+      folderLinePromptBackdropRef.value?.focus()
+      const inp = folderLinePromptBackdropRef.value?.querySelector(
+        "input.lib-line-prompt-input",
+      ) as HTMLInputElement | null
+      inp?.focus()
+      inp?.select()
+    })
+  })
+}
+
+function submitFolderLinePrompt() {
+  const r = folderLinePromptResolve
+  folderLinePromptResolve = null
+  folderLinePrompt.open = false
+  r?.(folderLinePrompt.value)
+}
+
+function cancelFolderLinePrompt() {
+  const r = folderLinePromptResolve
+  folderLinePromptResolve = null
+  folderLinePrompt.open = false
+  r?.(null)
+}
+
 async function onDeleteFolder(payload: { id: string; name: string }) {
   if (
-    !confirm(
+    !(await confirmTwice(
       `删除文件夹「${payload.name}」？仅允许删除空文件夹（无子文件夹、无曲谱）。`,
-    )
+      "再次确认：删除后不可恢复，确定删除吗？",
+    ))
   ) {
     return
   }
@@ -228,7 +276,7 @@ async function onDeleteFolder(payload: { id: string; name: string }) {
 }
 
 async function onFolderRename(payload: { id: string; name: string }) {
-  const next = window.prompt("文件夹名称", payload.name)
+  const next = await openFolderLinePrompt("文件夹名称", payload.name)
   if (next === null) return
   const t = next.trim()
   if (!t || t === payload.name) return
@@ -242,8 +290,10 @@ async function onFolderRename(payload: { id: string; name: string }) {
   }
 }
 
-async function onCreateSubfolder(parentId: string) {
-  const next = window.prompt("新建子文件夹名称")
+async function onCreateSubfolder(rowFolderId: string) {
+  /** 「当前文件夹」= 侧栏选中的上下文文件夹；未选中时在该行文件夹下创建 */
+  const parentId = contextFolderId.value ?? rowFolderId
+  const next = await openFolderLinePrompt("新建子文件夹名称", "")
   if (next === null) return
   const t = next.trim()
   if (!t) return
@@ -403,7 +453,13 @@ function onSearchInput() {
 }
 
 async function onDeleteSheet(payload: { id: string; title: string }) {
-  if (!confirm(`删除「${payload.title}」？本地文件会一并删除。`)) return
+  if (
+    !(await confirmTwice(
+      `删除「${payload.title}」？本地文件会一并删除。`,
+      "再次确认：删除后不可恢复，确定删除吗？",
+    ))
+  )
+    return
   error.value = null
   try {
     await invoke("delete_sheet", { id: payload.id })
@@ -641,6 +697,36 @@ onUnmounted(() => {
         </article>
       </section>
     </main>
+
+    <Teleport to="body">
+      <div
+        v-if="folderLinePrompt.open"
+        ref="folderLinePromptBackdropRef"
+        class="lib-line-prompt-backdrop"
+        role="dialog"
+        aria-modal="true"
+        tabindex="-1"
+        @click.self="cancelFolderLinePrompt"
+        @keydown.escape.prevent="cancelFolderLinePrompt"
+      >
+        <div class="lib-line-prompt" @click.stop>
+          <p class="lib-line-prompt-title">{{ folderLinePrompt.title }}</p>
+          <input
+            v-model="folderLinePrompt.value"
+            type="text"
+            class="lib-line-prompt-input"
+            maxlength="80"
+            @keydown.enter.prevent="submitFolderLinePrompt"
+          />
+          <div class="lib-line-prompt-actions">
+            <button type="button" @click="cancelFolderLinePrompt">取消</button>
+            <button type="button" class="lib-line-prompt-primary" @click="submitFolderLinePrompt">
+              确定
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -995,5 +1081,63 @@ button.primary {
 button:disabled {
   opacity: 0.55;
   cursor: not-allowed;
+}
+</style>
+
+<style>
+/* Teleport to body — keep unscoped so dialog styles apply */
+.lib-line-prompt-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 12000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: color-mix(in srgb, var(--gs-text, #111) 38%, transparent);
+}
+.lib-line-prompt {
+  width: min(22rem, 100%);
+  padding: 1rem 1.1rem;
+  border-radius: var(--gs-radius-md, 10px);
+  border: 1px solid var(--gs-border, #ccc);
+  background: var(--gs-bg-surface, #fff);
+  box-shadow: var(--gs-shadow-sm, 0 4px 24px rgba(0, 0, 0, 0.12));
+}
+.lib-line-prompt-title {
+  margin: 0 0 0.65rem;
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--gs-text, #222);
+}
+.lib-line-prompt-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.45rem 0.55rem;
+  font-size: 0.95rem;
+  border: 1px solid var(--gs-border, #ccc);
+  border-radius: var(--gs-radius-sm, 6px);
+  background: var(--gs-bg-muted, #f5f5f5);
+  color: var(--gs-text, #222);
+}
+.lib-line-prompt-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.85rem;
+}
+.lib-line-prompt-actions button {
+  cursor: pointer;
+  padding: 0.35rem 0.75rem;
+  border-radius: var(--gs-radius-sm, 6px);
+  border: 1px solid var(--gs-border, #ccc);
+  background: var(--gs-bg-muted, #f0f0f0);
+  font-size: 0.88rem;
+}
+.lib-line-prompt-primary {
+  border-color: var(--gs-primary-border, #6b8cff) !important;
+  background: var(--gs-primary-bg, #eef3ff) !important;
+  color: var(--gs-link, #234);
+  font-weight: 600;
 }
 </style>

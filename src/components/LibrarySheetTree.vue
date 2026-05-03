@@ -144,6 +144,8 @@ function onDeleteSheetClick(row: LibraryTreeRow & { kind: "sheet" }, e: MouseEve
             draggable="false"
             :aria-label="collapsedFolders[row.id] ? '展开文件夹' : '折叠文件夹'"
             @click.stop="$emit('toggleFolderCollapse', row.id)"
+            @mousedown.stop
+            @pointerdown.stop
           >
             <svg
               class="tree-chevron-svg"
@@ -233,7 +235,7 @@ function onDeleteSheetClick(row: LibraryTreeRow & { kind: "sheet" }, e: MouseEve
               type="button"
               class="icon-btn"
               draggable="false"
-              title="在此文件夹下新建子文件夹"
+              title="在侧栏「当前」文件夹下新建子文件夹；未选文件夹时在此行文件夹下创建"
               aria-label="新建子文件夹"
               @click.stop="$emit('createSubfolder', row.id)"
               @mousedown.stop
@@ -394,6 +396,22 @@ function onDeleteSheetClick(row: LibraryTreeRow & { kind: "sheet" }, e: MouseEve
   flex-shrink: 0;
   display: flex;
   align-items: center;
+  transition: opacity 0.15s ease;
+  position: relative;
+  z-index: 1;
+}
+@media (hover: hover) and (pointer: fine) {
+  .folder-actions,
+  .sheet-actions {
+    opacity: 0.42;
+    pointer-events: auto;
+  }
+  .folder-line:hover .folder-actions,
+  .folder-line:focus-within .folder-actions,
+  .sheet-line:hover .sheet-actions,
+  .sheet-line:focus-within .sheet-actions {
+    opacity: 1;
+  }
 }
 
 .folder-line {
@@ -552,6 +570,9 @@ function onDeleteSheetClick(row: LibraryTreeRow & { kind: "sheet" }, e: MouseEve
   display: flex;
   align-items: center;
   gap: 0.05rem;
+  transition: opacity 0.15s ease;
+  position: relative;
+  z-index: 1;
 }
 .icon-btn {
   display: flex;

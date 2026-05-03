@@ -33,6 +33,7 @@ import {
   loadPracticePreferences,
   savePracticePreferences,
 } from "../practice/practicePreferences"
+import { confirmTwice } from "../utils/confirmTwice"
 import { showToast } from "../utils/toast"
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
@@ -441,7 +442,13 @@ function onTextBlur() {
 async function removeSheet() {
   const id = props.sheetId
   if (!id || !meta.value) return
-  if (!confirm(`删除「${meta.value.display_title}」？本地文件会一并删除。`)) return
+  if (
+    !(await confirmTwice(
+      `删除「${meta.value.display_title}」？本地文件会一并删除。`,
+      "再次确认：删除后不可恢复，确定删除吗？",
+    ))
+  )
+    return
   try {
     await invoke("delete_sheet", { id })
     emit("deleted", id)
@@ -896,7 +903,7 @@ onUnmounted(() => {
 .text-wrap {
   padding: 0.75rem 1rem 1rem;
   flex: 1 1 auto;
-  min-height: min-content;
+  min-height: 0;
 }
 .text-sheet-layout {
   display: flex;
@@ -946,6 +953,8 @@ onUnmounted(() => {
 .tab.edit {
   resize: vertical;
   line-height: inherit;
+  color: var(--gs-text);
+  caret-color: var(--gs-text);
 }
 .text-preview {
   display: flex;
@@ -990,7 +999,7 @@ onUnmounted(() => {
   display: flex;
   justify-content: center;
   align-items: flex-start;
-  min-height: min-content;
+  min-height: 0;
 }
 .img-wrap img {
   max-width: 100%;
@@ -999,7 +1008,7 @@ onUnmounted(() => {
 .pdf-wrap {
   flex: 1 1 auto;
   padding: 1rem;
-  min-height: min-content;
+  min-height: 0;
 }
 .pdf-controls {
   display: flex;
