@@ -30,13 +30,20 @@ import {
 } from "../chords/readerPrefs"
 import {
   loadSheetReaderStoredState,
+  parseSheetReaderStoredStateJson,
   saveSheetReaderStoredState,
+  serializeSheetReaderStoredState,
 } from "../chords/sheetReaderState"
 import type { SheetReaderStoredState } from "../chords/sheetReaderState"
+import {
+  buildTextPreviewSegments,
+  listEmbedFilenames,
+} from "../chords/textSheetEmbeds"
 import { useAutoScroll } from "../composables/useAutoScroll"
 import { useMetronome } from "../composables/useMetronome"
 import { normalizePracticePreferences } from "../practice/practicePreferences"
 import { confirmTwice } from "../utils/confirmTwice"
+import { dataTransferLooksLikeFileDrag, inferAttachmentExtension } from "../utils/attachmentDrop"
 import { showToast } from "../utils/toast"
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
@@ -91,7 +98,7 @@ const titleInputRef = ref<HTMLInputElement | null>(null)
 const readerBodyRef = ref<HTMLElement | null>(null)
 const practicePlaying = ref(false)
 const practiceBpm = ref(120)
-const practiceScrollLevel = ref(10)
+const practiceScrollLevel = ref(20)
 const practiceMetronomeMuted = ref(false)
 const practiceAudioWarning = ref("")
 /** Revoked when switching sheets or unmount; separate from imgSrc string when using blob URLs. */
@@ -115,14 +122,37 @@ function collectSheetReaderState(): SheetReaderStoredState {
   }
 }
 
-function persistCurrentSheetReader() {
-  if (props.sheetId) {
-    saveSheetReaderStoredState(
-      localStorage,
-      props.sheetId,
-      collectSheetReaderState(),
-    )
+let readerPersistTimer: ReturnType<typeof setTimeout> | null = null
+
+async function flushReaderStateToBackendAndLocal(sheetId: string) {
+  const state = collectSheetReaderState()
+  saveSheetReaderStoredState(localStorage, sheetId, state)
+  try {
+    await invoke("set_sheet_reader_state", {
+      sheetId,
+      json: serializeSheetReaderStoredState(state),
+    })
+  } catch {
+    /* web / offline */
   }
+}
+
+function schedulePersistReader() {
+  const id = props.sheetId
+  if (!id) return
+  if (readerPersistTimer) clearTimeout(readerPersistTimer)
+  readerPersistTimer = setTimeout(() => {
+    readerPersistTimer = null
+    void flushReaderStateToBackendAndLocal(id)
+  }, 400)
+}
+
+async function flushReaderStateNow(sheetId: string) {
+  if (readerPersistTimer) {
+    clearTimeout(readerPersistTimer)
+    readerPersistTimer = null
+  }
+  await flushReaderStateToBackendAndLocal(sheetId)
 }
 
 function applySheetReaderState(s: SheetReaderStoredState) {
@@ -140,32 +170,33 @@ function resetReaderStateToDefaults() {
   practiceMetronomeMuted.value = d.metronomeMuted
 }
 
-watch(
-  () => props.sheetId,
-  (newId, oldId) => {
-    if (oldId) {
-      saveSheetReaderStoredState(localStorage, oldId, collectSheetReaderState())
+async function hydrateReaderForSheet(sheetId: string) {
+  try {
+    const raw = await invoke<string | null>("get_sheet_reader_state", { sheetId })
+    if (raw != null && String(raw).trim() !== "") {
+      const parsed = parseSheetReaderStoredStateJson(String(raw))
+      if (parsed) {
+        applySheetReaderState(parsed)
+        saveSheetReaderStoredState(localStorage, sheetId, parsed)
+        return
+      }
     }
-    readerSettingsOpen.value = false
-    if (newId) {
-      applySheetReaderState(loadSheetReaderStoredState(localStorage, newId))
-    } else {
-      resetReaderStateToDefaults()
-    }
-  },
-  { immediate: true },
-)
+  } catch {
+    /* not running in Tauri */
+  }
+  applySheetReaderState(loadSheetReaderStoredState(localStorage, sheetId))
+}
 
 watch(
   chordPrefs,
   () => {
-    persistCurrentSheetReader()
+    schedulePersistReader()
   },
   { deep: true },
 )
 
 watch([practiceBpm, practiceScrollLevel, practiceMetronomeMuted], () => {
-  persistCurrentSheetReader()
+  schedulePersistReader()
 })
 
 watch(readerSettingsOpen, (open) => {
@@ -247,41 +278,6 @@ function setPracticeMetronomeMuted(v: boolean) {
   practiceMetronomeMuted.value = v
 }
 
-type TextPreviewSeg =
-  | { type: "text"; content: string }
-  | { type: "img"; file: string }
-
-function parseImageLine(line: string): string | null {
-  const token = line.match(/^\s*\{\{IMG:([^}]+)\}\}\s*$/)
-  if (token) return token[1]!.trim()
-  const md = line.match(/^\s*!\[[^\]]*\]\(([^)]+)\)\s*$/)
-  if (md) return md[1]!.trim()
-  return null
-}
-
-function buildTextPreviewSegments(body: string): TextPreviewSeg[] {
-  const lines = body.split("\n")
-  const out: TextPreviewSeg[] = []
-  const textBuf: string[] = []
-  const flush = () => {
-    if (textBuf.length) {
-      out.push({ type: "text", content: textBuf.join("\n") })
-      textBuf.length = 0
-    }
-  }
-  for (const line of lines) {
-    const file = parseImageLine(line)
-    if (file) {
-      flush()
-      out.push({ type: "img", file })
-    } else {
-      textBuf.push(line)
-    }
-  }
-  flush()
-  return out
-}
-
 function siblingFilePath(tabAbs: string, file: string): string {
   const cleaned = file.replace(/^[/\\]+/, "")
   const name = cleaned.split(/[/\\]/).pop() || cleaned
@@ -296,6 +292,7 @@ const textPreviewSegments = computed(() =>
 )
 
 const previewUrls = ref<Record<string, string>>({})
+const pdfPreviewUrls = ref<Record<string, string>>({})
 let previewGen = 0
 
 function revokePreviewBlobUrls() {
@@ -303,6 +300,10 @@ function revokePreviewBlobUrls() {
     if (url.startsWith("blob:")) URL.revokeObjectURL(url)
   }
   previewUrls.value = {}
+  for (const url of Object.values(pdfPreviewUrls.value) as string[]) {
+    if (url.startsWith("blob:")) URL.revokeObjectURL(url)
+  }
+  pdfPreviewUrls.value = {}
 }
 
 async function refreshTextPreviewImages() {
@@ -311,30 +312,38 @@ async function refreshTextPreviewImages() {
   if (editingText.value || meta.value?.kind !== "text" || !meta.value.absolute_path) return
 
   const tabPath = meta.value.absolute_path
-  const files = [
-    ...new Set(
-      buildTextPreviewSegments(textBody.value)
-        .filter((s): s is { type: "img"; file: string } => s.type === "img")
-        .map((s) => s.file),
-    ),
-  ]
-  const next: Record<string, string> = {}
-  for (const file of files) {
+  const { images, pdfs } = listEmbedFilenames(textBody.value)
+  const nextImg: Record<string, string> = {}
+  const nextPdf: Record<string, string> = {}
+  for (const file of [...new Set(images)]) {
     if (gen !== previewGen) return
     try {
       const abs = siblingFilePath(tabPath, file)
       const bytes = await readFile(abs)
       const blob = new Blob([bytes], { type: guessImageMime(abs) })
-      next[file] = URL.createObjectURL(blob)
+      nextImg[file] = URL.createObjectURL(blob)
+    } catch {
+      /* missing or unreadable */
+    }
+  }
+  for (const file of [...new Set(pdfs)]) {
+    if (gen !== previewGen) return
+    try {
+      const abs = siblingFilePath(tabPath, file)
+      const bytes = await readFile(abs)
+      const blob = new Blob([bytes], { type: "application/pdf" })
+      nextPdf[file] = URL.createObjectURL(blob)
     } catch {
       /* missing or unreadable */
     }
   }
   if (gen !== previewGen) {
-    for (const u of Object.values(next)) URL.revokeObjectURL(u)
+    for (const u of Object.values(nextImg)) URL.revokeObjectURL(u)
+    for (const u of Object.values(nextPdf)) URL.revokeObjectURL(u)
     return
   }
-  previewUrls.value = next
+  previewUrls.value = nextImg
+  pdfPreviewUrls.value = nextPdf
 }
 
 function revokeImageBlobUrl() {
@@ -626,9 +635,9 @@ async function onTextPaste(e: ClipboardEvent) {
       const buf = new Uint8Array(await file.arrayBuffer())
       const ext = mimeToImageExtension(file.type || item.type)
       const b64 = uint8ToBase64(buf)
-      const snippet = await invoke<string>("save_sheet_clipboard_image", {
+      const snippet = await invoke<string>("save_sheet_text_attachment", {
         sheetId: props.sheetId,
-        imageBase64: b64,
+        fileBase64: b64,
         extension: ext,
       })
       insertAtCursor(snippet)
@@ -639,12 +648,229 @@ async function onTextPaste(e: ClipboardEvent) {
   }
 }
 
+function gatherFilesFromDataTransfer(dt: DataTransfer): File[] {
+  const out: File[] = []
+  if (dt.files?.length) {
+    for (let i = 0; i < dt.files.length; i++) out.push(dt.files[i]!)
+  }
+  if (!out.length && dt.items?.length) {
+    for (const it of Array.from(dt.items)) {
+      if (it.kind !== "file") continue
+      const f = it.getAsFile()
+      if (f) out.push(f)
+    }
+  }
+  // #region agent log
+  fetch("http://127.0.0.1:7268/ingest/f8b42a76-b477-4e11-b3eb-38547a546c8e", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Debug-Session-Id": "d399f4",
+    },
+    body: JSON.stringify({
+      sessionId: "d399f4",
+      hypothesisId: "B",
+      location: "SheetReaderPanel.vue:gatherFilesFromDataTransfer",
+      message: "gathered files",
+      data: {
+        filesLen: dt.files?.length ?? 0,
+        itemsLen: dt.items?.length ?? 0,
+        outCount: out.length,
+        names: out.map((f) => f.name),
+        types: out.map((f) => f.type),
+      },
+      timestamp: Date.now(),
+    }),
+  }).catch(() => {})
+  // #endregion
+  return out
+}
+
+async function snippetFromDroppedFile(file: File): Promise<string | null> {
+  const buf = new Uint8Array(await file.arrayBuffer())
+  if (!buf.length) return null
+  const head = buf.subarray(0, Math.min(8, buf.length))
+  const ext = inferAttachmentExtension(file.name, file.type, head)
+  // #region agent log
+  fetch("http://127.0.0.1:7268/ingest/f8b42a76-b477-4e11-b3eb-38547a546c8e", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Debug-Session-Id": "d399f4",
+    },
+    body: JSON.stringify({
+      sessionId: "d399f4",
+      hypothesisId: "C",
+      location: "SheetReaderPanel.vue:snippetFromDroppedFile",
+      message: "after infer ext",
+      data: {
+        name: file.name,
+        mime: file.type,
+        ext,
+        head0: head[0],
+        head1: head[1],
+        head2: head[2],
+        head3: head[3],
+      },
+      timestamp: Date.now(),
+    }),
+  }).catch(() => {})
+  // #endregion
+  if (!ext) return null
+  if (!props.sheetId) return null
+  const b64 = uint8ToBase64(buf)
+  return await invoke<string>("save_sheet_text_attachment", {
+    sheetId: props.sheetId,
+    fileBase64: b64,
+    extension: ext,
+  })
+}
+
+async function appendDroppedAttachments(files: File[]) {
+  if (!props.sheetId || meta.value?.kind !== "text") return
+  const snippets: string[] = []
+  for (const file of files) {
+    try {
+      const s = await snippetFromDroppedFile(file)
+      if (s) snippets.push(s.trimEnd())
+    } catch (err) {
+      // #region agent log
+      fetch("http://127.0.0.1:7268/ingest/f8b42a76-b477-4e11-b3eb-38547a546c8e", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Debug-Session-Id": "d399f4",
+        },
+        body: JSON.stringify({
+          sessionId: "d399f4",
+          hypothesisId: "D",
+          location: "SheetReaderPanel.vue:appendDroppedAttachments",
+          message: "snippet/invoke error",
+          data: { err: String(err), fileName: file.name },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {})
+      // #endregion
+      error.value = String(err)
+      return
+    }
+  }
+  // #region agent log
+  fetch("http://127.0.0.1:7268/ingest/f8b42a76-b477-4e11-b3eb-38547a546c8e", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Debug-Session-Id": "d399f4",
+    },
+    body: JSON.stringify({
+      sessionId: "d399f4",
+      hypothesisId: "E",
+      location: "SheetReaderPanel.vue:appendDroppedAttachments",
+      message: "before branch",
+      data: {
+        snippetsCount: snippets.length,
+        editing: editingText.value,
+      },
+      timestamp: Date.now(),
+    }),
+  }).catch(() => {})
+  // #endregion
+  if (!snippets.length) return
+  if (editingText.value) {
+    for (const line of snippets) {
+      insertAtCursor(line)
+    }
+    return
+  }
+  const current = textBody.value
+  const sep = current.length > 0 && !current.endsWith("\n") ? "\n" : ""
+  const addition = sep + snippets.join("\n") + "\n"
+  textDraft.value = current + addition
+  await saveTextBody()
+}
+
+function onBodyDragOver(e: DragEvent) {
+  if (!props.sheetId || meta.value?.kind !== "text") return
+  const types = e.dataTransfer ? [...e.dataTransfer.types] : []
+  const hasFiles = e.dataTransfer?.types?.includes("Files") ?? false
+  const looksLikeFile = dataTransferLooksLikeFileDrag(e.dataTransfer)
+  // #region agent log
+  fetch("http://127.0.0.1:7268/ingest/f8b42a76-b477-4e11-b3eb-38547a546c8e", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Debug-Session-Id": "d399f4",
+    },
+    body: JSON.stringify({
+      sessionId: "d399f4",
+      hypothesisId: "A",
+      location: "SheetReaderPanel.vue:onBodyDragOver",
+      message: "dragover",
+      data: {
+        sheetId: props.sheetId,
+        kind: meta.value?.kind,
+        types,
+        hasFiles,
+        looksLikeFile,
+        willPrevent: looksLikeFile,
+      },
+      timestamp: Date.now(),
+    }),
+  }).catch(() => {})
+  // #endregion
+  if (looksLikeFile && e.dataTransfer) {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = "copy"
+  }
+}
+
+async function onBodyDrop(e: DragEvent) {
+  if (!props.sheetId || meta.value?.kind !== "text") return
+  const dt = e.dataTransfer
+  if (!dt) return
+  const types = [...dt.types]
+  const files = gatherFilesFromDataTransfer(dt)
+  // #region agent log
+  fetch("http://127.0.0.1:7268/ingest/f8b42a76-b477-4e11-b3eb-38547a546c8e", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Debug-Session-Id": "d399f4",
+    },
+    body: JSON.stringify({
+      sessionId: "d399f4",
+      hypothesisId: "A",
+      location: "SheetReaderPanel.vue:onBodyDrop",
+      message: "drop start",
+      data: {
+        types,
+        fileCount: files.length,
+        sheetId: props.sheetId,
+        kind: meta.value?.kind,
+      },
+      timestamp: Date.now(),
+    }),
+  }).catch(() => {})
+  // #endregion
+  if (!files.length) return
+  e.preventDefault()
+  await appendDroppedAttachments(files)
+}
+
 watch(
   () => props.sheetId,
-  () => {
+  async (newId, oldId) => {
+    if (oldId) await flushReaderStateNow(oldId)
+    readerSettingsOpen.value = false
+    if (newId) {
+      await hydrateReaderForSheet(newId)
+    } else {
+      resetReaderStateToDefaults()
+    }
     practicePlaying.value = false
-    void load()
+    await load()
   },
+  { immediate: true },
 )
 
 watch(
@@ -663,13 +889,7 @@ watch(
 )
 
 onUnmounted(() => {
-  if (props.sheetId) {
-    saveSheetReaderStoredState(
-      localStorage,
-      props.sheetId,
-      collectSheetReaderState(),
-    )
-  }
+  if (props.sheetId) void flushReaderStateNow(props.sheetId)
   document.removeEventListener("keydown", onReaderSettingsEscape)
   if (readerSettingsDismiss) {
     document.removeEventListener("mousedown", readerSettingsDismiss, true)
@@ -794,8 +1014,11 @@ onUnmounted(() => {
         <section v-if="meta.kind === 'text'" class="text-wrap">
           <div class="text-sheet-main">
               <p v-if="editingText" class="paste-hint">
-                提示：Ctrl+V 可粘贴图片；失焦自动保存正文（空白不保存）。若使用「和弦在上、歌词在下」的文本排版，退出编辑时会自动转为
+                提示：Ctrl+V 或拖拽可插入多张图片与多个 PDF；失焦自动保存正文（空白不保存）。若使用「和弦在上、歌词在下」的文本排版，退出编辑时会自动转为
                 <code>[和弦]</code> 内嵌格式。
+              </p>
+              <p v-else class="paste-hint paste-hint--preview">
+                可将图片或 PDF 拖入此处，自动插入到正文末尾并保存（无需先点进编辑）。
               </p>
               <textarea
                 v-if="editingText"
@@ -804,6 +1027,8 @@ onUnmounted(() => {
                 class="tab edit"
                 :style="{ fontSize: fontPx + 'px', lineHeight: String(TEXT_LINE_HEIGHT) }"
                 @paste="onTextPaste"
+                @dragover="onBodyDragOver"
+                @drop="onBodyDrop"
                 @blur="onTextBlur"
               />
               <div
@@ -811,10 +1036,12 @@ onUnmounted(() => {
                 class="tab text-preview"
                 role="button"
                 tabindex="0"
-                title="点击编辑正文"
+                title="点击编辑正文；也可拖入图片或 PDF"
                 :style="{ fontSize: fontPx + 'px', lineHeight: String(TEXT_LINE_HEIGHT) }"
                 @click="enterBodyEdit"
                 @keydown.enter.prevent="enterBodyEdit"
+                @dragover="onBodyDragOver"
+                @drop="onBodyDrop"
               >
                 <template v-for="(seg, i) in textPreviewSegments" :key="i">
                   <ChordSheetRenderer
@@ -829,7 +1056,7 @@ onUnmounted(() => {
                     v-else-if="seg.type === 'text'"
                     class="text-chunk"
                   >{{ seg.content }}</pre>
-                  <figure v-else class="inline-img-wrap">
+                  <figure v-else-if="seg.type === 'img'" class="inline-img-wrap">
                     <img
                       v-if="previewUrls[seg.file]"
                       :src="previewUrls[seg.file]"
@@ -837,6 +1064,16 @@ onUnmounted(() => {
                       class="inline-img"
                     />
                     <p v-else class="img-missing">（无法加载图片：{{ seg.file }}）</p>
+                  </figure>
+                  <figure v-else-if="seg.type === 'pdf'" class="inline-pdf-wrap">
+                    <embed
+                      v-if="pdfPreviewUrls[seg.file]"
+                      class="inline-pdf-embed"
+                      :src="pdfPreviewUrls[seg.file]"
+                      type="application/pdf"
+                      title="内嵌 PDF"
+                    />
+                    <p v-else class="img-missing">（无法加载 PDF：{{ seg.file }}）</p>
                   </figure>
                 </template>
               </div>
@@ -1170,6 +1407,18 @@ onUnmounted(() => {
   margin: 0;
   font-size: 0.85rem;
   color: var(--gs-text-muted);
+}
+.inline-pdf-wrap {
+  margin: 0;
+  width: 100%;
+}
+.inline-pdf-embed {
+  display: block;
+  width: 100%;
+  min-height: 14rem;
+  border: 1px solid var(--gs-border);
+  border-radius: var(--gs-radius-sm);
+  background: var(--gs-bg-muted);
 }
 .img-wrap {
   flex: 1 1 auto;

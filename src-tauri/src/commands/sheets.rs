@@ -151,6 +151,7 @@ pub fn import_sheet(
         last_synced_at: None,
         folder_id,
         artist: None,
+        reader_state_json: None,
     };
 
     let conn = state
@@ -232,6 +233,7 @@ pub fn create_text_sheet(
         last_synced_at: None,
         folder_id,
         artist: None,
+        reader_state_json: None,
     };
 
     let conn = state
@@ -508,5 +510,125 @@ pub fn save_sheet_clipboard_image(
     let dest = dir.join(&filename);
     std::fs::write(&dest, &bytes).map_err(|e| e.to_string())?;
 
-    Ok(format!("{{IMG:{filename}}}"))
+    Ok(format!("{{{{IMG:{filename}}}}}"))
+}
+
+const MAX_READER_STATE_JSON: usize = 65536;
+
+#[tauri::command]
+pub fn get_sheet_reader_state(
+    state: State<'_, AppState>,
+    sheet_id: String,
+) -> Result<Option<String>, String> {
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
+    let row = db::get_sheet(&conn, &sheet_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| AppError::BadInput(format!("no sheet with id {sheet_id}")).to_string())?;
+    Ok(row.reader_state_json)
+}
+
+#[tauri::command]
+pub fn set_sheet_reader_state(
+    state: State<'_, AppState>,
+    sheet_id: String,
+    json: String,
+) -> Result<(), String> {
+    if json.len() > MAX_READER_STATE_JSON {
+        return Err(AppError::BadInput("reader state JSON too large".into()).to_string());
+    }
+    serde_json::from_str::<serde_json::Value>(&json)
+        .map_err(|e| AppError::BadInput(format!("invalid JSON: {e}")).to_string())?;
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
+    db::update_sheet_reader_state(&conn, &sheet_id, &json).map_err(|e| e.to_string())
+}
+
+/// Saves an image or PDF next to the text sheet; returns `{{IMG:…}}` or `{{PDF:…}}` line token.
+#[tauri::command]
+pub fn save_sheet_text_attachment(
+    state: State<'_, AppState>,
+    sheet_id: String,
+    file_base64: String,
+    extension: String,
+) -> Result<String, String> {
+    use base64::Engine;
+
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(file_base64.trim())
+        .map_err(|e| format!("无效的附件数据: {e}"))?;
+    if bytes.is_empty() {
+        return Err(AppError::BadInput("empty attachment".into()).to_string());
+    }
+
+    let ext_raw = extension.to_lowercase();
+    let ext_norm = ext_raw.trim_start_matches('.').trim();
+
+    let paths = &state.paths;
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
+    let row = db::get_sheet(&conn, &sheet_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| AppError::BadInput(format!("no sheet with id {sheet_id}")).to_string())?;
+    if row.kind != "text" {
+        return Err("仅文本曲谱支持嵌入附件。".into());
+    }
+
+    let tab_path = paths.data_dir.join(&row.local_rel_path);
+    let dir = tab_path
+        .parent()
+        .ok_or_else(|| AppError::BadInput("invalid sheet path".into()).to_string())?;
+    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+
+    let id_short: String = Uuid::new_v4()
+        .to_string()
+        .chars()
+        .filter(|c| *c != '-')
+        .take(8)
+        .collect();
+
+    match ext_norm {
+        "png" | "jpg" | "jpeg" | "webp" | "gif" => {
+            let ext_final = if ext_norm == "jpeg" { "jpg" } else { ext_norm };
+            let filename = format!("paste_{id_short}.{ext_final}");
+            let dest = dir.join(&filename);
+            std::fs::write(&dest, &bytes).map_err(|e| e.to_string())?;
+            Ok(format!("{{{{IMG:{filename}}}}}"))
+        }
+        "pdf" => {
+            if !bytes.starts_with(b"%PDF") {
+                return Err(AppError::BadInput("not a PDF file".into()).to_string());
+            }
+            let filename = format!("drop_{id_short}.pdf");
+            let dest = dir.join(&filename);
+            std::fs::write(&dest, &bytes).map_err(|e| e.to_string())?;
+            Ok(format!("{{{{PDF:{filename}}}}}"))
+        }
+        other => Err(
+            AppError::BadInput(format!("unsupported attachment type: {other}")).to_string(),
+        ),
+    }
+}
+
+#[cfg(test)]
+mod embed_token_format_tests {
+    #[test]
+    fn img_return_line_is_double_braced() {
+        let filename = "paste_abcdef12.png";
+        let s = format!("{{{{IMG:{filename}}}}}");
+        assert_eq!(s, "{{IMG:paste_abcdef12.png}}");
+    }
+
+    #[test]
+    fn pdf_return_line_is_double_braced() {
+        let filename = "drop_abcdef12.pdf";
+        let s = format!("{{{{PDF:{filename}}}}}");
+        assert_eq!(s, "{{PDF:drop_abcdef12.pdf}}");
+    }
 }

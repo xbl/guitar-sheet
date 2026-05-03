@@ -6,8 +6,8 @@ use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::error::{AppError, AppResult};
 
-/// Bump when `migrate` gains new steps; keep in sync with SQL in `migrate_to_v2`.
-pub const SCHEMA_VERSION: i32 = 2;
+/// Bump when `migrate` gains new steps; keep in sync with SQL in `migrate_to_v2` / `migrate_to_v3`.
+pub const SCHEMA_VERSION: i32 = 3;
 
 const SCHEMA_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS sheets (
@@ -38,7 +38,15 @@ pub fn migrate(conn: &Connection, data_dir: &Path) -> AppResult<()> {
     if v < 2 {
         migrate_to_v2(conn, data_dir)?;
     }
+    if v < 3 {
+        migrate_to_v3(conn)?;
+    }
     conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
+    Ok(())
+}
+
+fn migrate_to_v3(conn: &Connection) -> AppResult<()> {
+    add_column_if_missing(conn, "sheets", "reader_state_json", "TEXT")?;
     Ok(())
 }
 
@@ -153,6 +161,8 @@ pub struct SheetRow {
     pub last_synced_at: Option<String>,
     pub folder_id: Option<String>,
     pub artist: Option<String>,
+    /// JSON blob: chord preview + practice toolbar prefs (per-sheet reader UI).
+    pub reader_state_json: Option<String>,
 }
 
 fn row_from_stmt(row: &rusqlite::Row<'_>) -> rusqlite::Result<SheetRow> {
@@ -168,6 +178,7 @@ fn row_from_stmt(row: &rusqlite::Row<'_>) -> rusqlite::Result<SheetRow> {
         last_synced_at: row.get(8)?,
         folder_id: row.get(9)?,
         artist: row.get(10)?,
+        reader_state_json: row.get(11)?,
     })
 }
 
@@ -210,7 +221,8 @@ pub fn list_sheets_filtered(
 ) -> AppResult<Vec<SheetRow>> {
     let mut buf = String::from(
         "SELECT DISTINCT s.id, s.display_title, s.kind, s.local_rel_path, s.local_content_hash, \
-         s.remote_path, s.remote_blob_sha, s.last_local_modified_at, s.last_synced_at, s.folder_id, s.artist \
+         s.remote_path, s.remote_blob_sha, s.last_local_modified_at, s.last_synced_at, s.folder_id, s.artist, \
+         s.reader_state_json \
          FROM sheets s WHERE 1=1",
     );
     let mut args: Vec<String> = Vec::new();
@@ -251,8 +263,8 @@ pub fn insert_sheet(conn: &Connection, row: &SheetRow) -> AppResult<()> {
         r#"INSERT INTO sheets (
             id, display_title, kind, local_rel_path, local_content_hash,
             remote_path, remote_blob_sha, last_local_modified_at, last_synced_at,
-            folder_id, artist
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)"#,
+            folder_id, artist, reader_state_json
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)"#,
         params![
             row.id,
             row.display_title,
@@ -265,6 +277,7 @@ pub fn insert_sheet(conn: &Connection, row: &SheetRow) -> AppResult<()> {
             row.last_synced_at,
             row.folder_id,
             row.artist,
+            row.reader_state_json,
         ],
     )?;
     Ok(())
@@ -278,7 +291,7 @@ pub fn get_sheet(conn: &Connection, id: &str) -> AppResult<Option<SheetRow>> {
     let mut stmt = conn.prepare(
         r#"SELECT id, display_title, kind, local_rel_path, local_content_hash,
                   remote_path, remote_blob_sha, last_local_modified_at, last_synced_at,
-                  folder_id, artist
+                  folder_id, artist, reader_state_json
            FROM sheets WHERE id = ?1"#,
     )?;
     let row = stmt.query_row(params![id], row_from_stmt).optional()?;
@@ -309,6 +322,17 @@ pub fn update_display_title(conn: &Connection, id: &str, title: &str) -> AppResu
     let n = conn.execute(
         "UPDATE sheets SET display_title = ?2 WHERE id = ?1",
         params![id, title],
+    )?;
+    if n == 0 {
+        return Err(AppError::BadInput(format!("no sheet with id {id}")));
+    }
+    Ok(())
+}
+
+pub fn update_sheet_reader_state(conn: &Connection, id: &str, json: &str) -> AppResult<()> {
+    let n = conn.execute(
+        "UPDATE sheets SET reader_state_json = ?2 WHERE id = ?1",
+        params![id, json],
     )?;
     if n == 0 {
         return Err(AppError::BadInput(format!("no sheet with id {id}")));
@@ -392,7 +416,7 @@ pub fn list_sheets_under_local_prefix(conn: &Connection, path_prefix: &str) -> A
     let mut stmt = conn.prepare(
         r#"SELECT id, display_title, kind, local_rel_path, local_content_hash,
                   remote_path, remote_blob_sha, last_local_modified_at, last_synced_at,
-                  folder_id, artist
+                  folder_id, artist, reader_state_json
            FROM sheets"#,
     )?;
     let rows = stmt.query_map([], row_from_stmt)?;
@@ -653,6 +677,7 @@ mod tests {
             last_synced_at: None,
             folder_id: None,
             artist: None,
+            reader_state_json: None,
         };
         insert_sheet(&conn, &row).unwrap();
         let all = list_sheets(&conn, None).unwrap();
@@ -660,6 +685,33 @@ mod tests {
         assert_eq!(all[0].id, "id1");
         let found = list_sheets(&conn, Some("Te")).unwrap();
         assert_eq!(found.len(), 1);
+    }
+
+    #[test]
+    fn reader_state_json_round_trips() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = Connection::open_in_memory().unwrap();
+        init_schema(&conn).unwrap();
+        migrate(&conn, dir.path()).unwrap();
+        let row = SheetRow {
+            id: "r1".into(),
+            display_title: "R".into(),
+            kind: "text".into(),
+            local_rel_path: "library/content/r1/content.txt".into(),
+            local_content_hash: "h".into(),
+            remote_path: None,
+            remote_blob_sha: None,
+            last_local_modified_at: Utc::now().to_rfc3339(),
+            last_synced_at: None,
+            folder_id: None,
+            artist: None,
+            reader_state_json: None,
+        };
+        insert_sheet(&conn, &row).unwrap();
+        let blob = r#"{"chord":{"transposeSemitones":1},"practice":{"bpm":90}}"#.to_string();
+        update_sheet_reader_state(&conn, "r1", &blob).unwrap();
+        let got = get_sheet(&conn, "r1").unwrap().expect("row");
+        assert_eq!(got.reader_state_json.as_deref(), Some(blob.as_str()));
     }
 
     #[test]
@@ -672,7 +724,7 @@ mod tests {
         let v: i32 = conn
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 2);
+        assert_eq!(v, 3);
         let n: i32 = conn
             .query_row(
                 "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='folders'",
@@ -681,11 +733,19 @@ mod tests {
             )
             .unwrap();
         assert_eq!(n, 1);
+        let col: i32 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('sheets') WHERE name='reader_state_json'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(col, 1);
         migrate(&conn, dir.path()).unwrap();
         let v2: i32 = conn
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(v2, 2);
+        assert_eq!(v2, 3);
     }
 
     #[test]
@@ -739,6 +799,7 @@ mod tests {
             last_synced_at: None,
             folder_id: None,
             artist: None,
+            reader_state_json: None,
         };
         insert_sheet(&conn, &row).unwrap();
         replace_sheet_tags(&conn, "s1", &[String::from("Classic Rock")]).unwrap();

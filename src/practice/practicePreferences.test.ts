@@ -32,12 +32,12 @@ describe("practicePreferences", () => {
   it("normalizePracticePreferences clamps and fills defaults", () => {
     expect(normalizePracticePreferences({ bpm: 300, scrollLevel: 99 })).toEqual({
       bpm: 240,
-      scrollLevel: 20,
+      scrollLevel: 40,
       metronomeMuted: false,
     })
     expect(normalizePracticePreferences({ metronomeMuted: true })).toEqual({
       bpm: 120,
-      scrollLevel: 10,
+      scrollLevel: 20,
       metronomeMuted: true,
     })
   })

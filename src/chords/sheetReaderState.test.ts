@@ -2,7 +2,9 @@ import { afterEach, describe, expect, it } from "vitest"
 import { saveReaderChordPrefs } from "./readerPrefs"
 import {
   loadSheetReaderStoredState,
+  parseSheetReaderStoredStateJson,
   saveSheetReaderStoredState,
+  serializeSheetReaderStoredState,
   sheetReaderStateStorageKey,
 } from "./sheetReaderState"
 import {
@@ -108,5 +110,20 @@ describe("sheetReaderState", () => {
     expect(got.practice.metronomeMuted).toBe(true)
     expect(got.chord.transposeSemitones).toBe(1)
     expect(got.chord.capoFret).toBe(4)
+  })
+
+  it("parseSheetReaderStoredStateJson returns null for invalid", () => {
+    expect(parseSheetReaderStoredStateJson("")).toBeNull()
+    expect(parseSheetReaderStoredStateJson("{")).toBeNull()
+  })
+
+  it("serializeSheetReaderStoredState and parse round-trip", () => {
+    const s = mockStorage()
+    const state = loadSheetReaderStoredState(s, "z")
+    const raw = serializeSheetReaderStoredState(state)
+    const back = parseSheetReaderStoredStateJson(raw)
+    expect(back).not.toBeNull()
+    expect(back!.chord.chordStyle).toBe(state.chord.chordStyle)
+    expect(back!.practice.scrollLevel).toBe(state.practice.scrollLevel)
   })
 })

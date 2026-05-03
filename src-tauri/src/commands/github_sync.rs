@@ -128,6 +128,7 @@ pub fn resolve_sheet_conflict(
                 last_synced_at: None,
                 folder_id: None,
                 artist: None,
+                reader_state_json: None,
             };
             let c = state
                 .conn

@@ -1,6 +1,7 @@
 export const SCROLL_LEVEL_MIN = 1
-export const SCROLL_LEVEL_MAX = 20
-export const SCROLL_LEVEL_DEFAULT = 10
+/** 40 档线性 10–200 px/s，比 20 档更细，缓解低速区相邻档位落差过大。 */
+export const SCROLL_LEVEL_MAX = 40
+export const SCROLL_LEVEL_DEFAULT = 20
 
 export const BPM_MIN = 40
 export const BPM_MAX = 240

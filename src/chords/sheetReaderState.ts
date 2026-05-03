@@ -53,9 +53,34 @@ export function saveSheetReaderStoredState(
 ): void {
   storage.setItem(
     sheetReaderStateStorageKey(sheetId),
-    JSON.stringify({
-      chord: { ...state.chord },
-      practice: { ...state.practice },
-    }),
+    serializeSheetReaderStoredState(state),
   )
+}
+
+/** Stable JSON for SQLite `reader_state_json` and Tauri `invoke`. */
+export function serializeSheetReaderStoredState(state: SheetReaderStoredState): string {
+  return JSON.stringify({
+    chord: { ...state.chord },
+    practice: { ...state.practice },
+  })
+}
+
+/** Parse backend JSON; returns `null` if invalid. */
+export function parseSheetReaderStoredStateJson(
+  raw: string,
+): SheetReaderStoredState | null {
+  const t = raw.trim()
+  if (!t) return null
+  try {
+    const j = JSON.parse(t) as Partial<{
+      chord: Partial<ReaderChordPrefs>
+      practice: Partial<PracticePreferences>
+    }>
+    return {
+      chord: normalizeReaderChordPrefs(j.chord),
+      practice: normalizePracticePreferences(j.practice),
+    }
+  } catch {
+    return null
+  }
 }
