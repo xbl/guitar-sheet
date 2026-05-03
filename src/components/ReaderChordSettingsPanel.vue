@@ -1,7 +1,12 @@
 <script setup lang="ts">
 import { inject } from "vue"
 import type { ReaderChordPrefs } from "../chords/readerPrefs"
-import { readerChordPrefsInjectionKey, ZOOM_LABEL } from "../chords/readerPrefs"
+import {
+  readerChordPrefsInjectionKey,
+  readerPanelNotesInjectionKey,
+  ZOOM_LABEL,
+} from "../chords/readerPrefs"
+import { PANEL_NOTES_MAX_LEN } from "../chords/sheetReaderState"
 import { transposeOffsetLabel } from "../chords/transposeChord"
 
 const injected = inject(readerChordPrefsInjectionKey)
@@ -9,6 +14,11 @@ if (injected === undefined) {
   throw new Error("ReaderChordSettingsPanel: missing readerChordPrefs provider")
 }
 const prefs: ReaderChordPrefs = injected
+
+const panelNotes = inject(readerPanelNotesInjectionKey)
+if (panelNotes === undefined) {
+  throw new Error("ReaderChordSettingsPanel: missing readerPanelNotes provider")
+}
 
 function clampSemi(delta: number) {
   prefs.transposeSemitones = Math.min(
@@ -111,10 +121,17 @@ function toggle(key: "simplifyChords" | "parallelDisplay") {
       />
     </label>
 
-    <p class="hint">
-      本谱独立记忆移调、缩放与练习条参数。移调与简化仅影响预览；正文源文件不变。Capo
-      仅作备忘提示。并行显示：和弦行合并为一段（行间空行忽略），按窗口宽度自动折行。
-    </p>
+    <label class="field notes-field">
+      <span class="label">说明</span>
+      <textarea
+        v-model="panelNotes"
+        class="notes-textarea"
+        rows="5"
+        :maxlength="PANEL_NOTES_MAX_LEN"
+        placeholder="备忘文字，仅保存在本谱阅读设置中，不会写入正文。"
+        spellcheck="false"
+      />
+    </label>
   </aside>
 </template>
 
@@ -249,10 +266,30 @@ function toggle(key: "simplifyChords" | "parallelDisplay") {
 .switch.on::after {
   transform: translateX(1.25rem);
 }
-.hint {
-  margin: 0.75rem 0 0;
-  font-size: 0.72rem;
-  line-height: 1.4;
+.notes-field {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.35rem;
+  margin-bottom: 0;
+}
+.notes-field .label {
+  min-width: 0;
+}
+.notes-textarea {
+  width: 100%;
+  min-height: 4.5rem;
+  padding: 0.45rem 0.5rem;
+  border-radius: var(--gs-radius-sm);
+  border: 1px solid var(--gs-border);
+  background: var(--gs-bg-surface);
+  color: inherit;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  resize: vertical;
+  font-family: inherit;
+}
+.notes-textarea::placeholder {
   color: var(--gs-text-muted);
+  opacity: 0.85;
 }
 </style>

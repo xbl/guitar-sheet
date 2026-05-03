@@ -1,4 +1,4 @@
-import type { InjectionKey } from "vue"
+import type { InjectionKey, Ref } from "vue"
 
 export type ChordStyle = "diagram" | "text"
 
@@ -11,6 +11,11 @@ export type ReaderChordPrefs = {
   simplifyChords: boolean
   parallelDisplay: boolean
 }
+
+/** Provide from `SheetReaderPanel`; inject in `ReaderChordSettingsPanel` for 谱面说明. */
+export const readerPanelNotesInjectionKey: InjectionKey<Ref<string>> = Symbol(
+  "guitar-sheet.readerPanelNotes",
+)
 
 const KEY = "guitar-sheet.reader.chordPrefs"
 

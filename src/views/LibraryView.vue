@@ -9,7 +9,6 @@ import {
 } from "vue"
 import { RouterLink } from "vue-router"
 import { invoke } from "@tauri-apps/api/core"
-import { open } from "@tauri-apps/plugin-dialog"
 import LibrarySheetTree from "../components/LibrarySheetTree.vue"
 import SheetReaderPanel from "../components/SheetReaderPanel.vue"
 import type { FolderNode } from "../types/folder"
@@ -32,7 +31,7 @@ const libraryRows = computed<LibraryTreeRow[]>(() =>
 )
 
 const selectedSheetId = ref<string | null>(null)
-/** 导入 / 新建文件夹 的目标父文件夹（null = 谱库根） */
+/** 新建文件夹 / 新建曲谱 的目标父文件夹（null = 谱库根） */
 const contextFolderId = ref<string | null>(null)
 
 const error = ref<string | null>(null)
@@ -83,8 +82,6 @@ async function onSelectFolder(fid: string) {
 }
 
 const createFolderParentId = computed(() => contextFolderId.value)
-
-const importTargetFolderId = computed(() => contextFolderId.value)
 
 /** 拖放高亮：文件夹 id */
 const highlightDropFolderId = ref<string | null>(null)
@@ -359,7 +356,7 @@ async function createNewSheet() {
   try {
     const meta = await invoke<SheetMeta>("create_text_sheet", {
       title: "未命名",
-      folderId: importTargetFolderId.value,
+      folderId: contextFolderId.value,
       initialContent: null,
     })
     await refresh()
@@ -382,32 +379,6 @@ async function createFolder() {
     })
     newFolderName.value = ""
     await loadTree()
-  } catch (e) {
-    error.value = String(e)
-  }
-}
-
-async function pickImport() {
-  error.value = null
-  try {
-    const selected = await open({
-      multiple: false,
-      filters: [
-        {
-          name: "Tab / PDF / Image",
-          extensions: ["txt", "md", "pdf", "png", "jpg", "jpeg", "webp"],
-        },
-      ],
-    })
-    if (selected === null) return
-    const path = typeof selected === "string" ? selected : selected[0]
-    await invoke("import_sheet", {
-      sourcePath: path,
-      maybeTitle: null,
-      folderId: importTargetFolderId.value,
-    })
-    await refreshList()
-    syncMsg.value = "已导入"
   } catch (e) {
     error.value = String(e)
   }
@@ -547,15 +518,6 @@ onUnmounted(() => {
             </svg>
             <span>{{ creatingSheet ? "创建中…" : "新建曲谱" }}</span>
           </button>
-          <button type="button" class="side-action" title="导入谱子" @click="pickImport">
-            <svg class="side-action-icon" viewBox="0 0 24 24" aria-hidden="true">
-              <path
-                fill="currentColor"
-                d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z"
-              />
-            </svg>
-            <span>导入谱子</span>
-          </button>
           <button
             type="button"
             class="side-action side-action-primary"
@@ -618,7 +580,7 @@ onUnmounted(() => {
             @delete-sheet="onDeleteSheet"
           />
         </template>
-        <p v-else class="muted small">暂无文件夹与曲谱。可先导入或创建文件夹。</p>
+        <p v-else class="muted small">暂无文件夹与曲谱。可创建文件夹或新建曲谱。</p>
       </div>
       <div class="new-folder">
         <input

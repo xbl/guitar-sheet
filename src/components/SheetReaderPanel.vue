@@ -27,10 +27,12 @@ import { looksLikeChordSheet } from "../chords/parseChordSheet"
 import {
   normalizeReaderChordPrefs,
   readerChordPrefsInjectionKey,
+  readerPanelNotesInjectionKey,
   ZOOM_FONT_PX,
 } from "../chords/readerPrefs"
 import {
   loadSheetReaderStoredState,
+  normalizePanelNotes,
   parseSheetReaderStoredStateJson,
   saveSheetReaderStoredState,
   serializeSheetReaderStoredState,
@@ -84,6 +86,8 @@ const titleDraft = ref("")
 
 const chordPrefs = reactive(normalizeReaderChordPrefs(undefined))
 provide(readerChordPrefsInjectionKey, chordPrefs)
+const panelNotes = ref("")
+provide(readerPanelNotesInjectionKey, panelNotes)
 const fontPx = ref(ZOOM_FONT_PX[chordPrefs.zoomLevel as 0 | 1 | 2])
 const TEXT_LINE_HEIGHT = 1.6
 
@@ -127,6 +131,7 @@ function collectSheetReaderState(): SheetReaderStoredState {
       scrollLevel: practiceScrollLevel.value,
       metronomeMuted: practiceMetronomeMuted.value,
     },
+    panelNotes: normalizePanelNotes(panelNotes.value),
   }
 }
 
@@ -168,6 +173,7 @@ function applySheetReaderState(s: SheetReaderStoredState) {
   practiceBpm.value = s.practice.bpm
   practiceScrollLevel.value = s.practice.scrollLevel
   practiceMetronomeMuted.value = s.practice.metronomeMuted
+  panelNotes.value = s.panelNotes
 }
 
 function resetReaderStateToDefaults() {
@@ -176,6 +182,7 @@ function resetReaderStateToDefaults() {
   practiceBpm.value = d.bpm
   practiceScrollLevel.value = d.scrollLevel
   practiceMetronomeMuted.value = d.metronomeMuted
+  panelNotes.value = ""
 }
 
 async function hydrateReaderForSheet(sheetId: string) {
@@ -204,6 +211,10 @@ watch(
 )
 
 watch([practiceBpm, practiceScrollLevel, practiceMetronomeMuted], () => {
+  schedulePersistReader()
+})
+
+watch(panelNotes, () => {
   schedulePersistReader()
 })
 
