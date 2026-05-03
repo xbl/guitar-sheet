@@ -63,10 +63,7 @@ function isChordAnchor(cell: ChordCell): boolean {
             class="lyric-col"
             :class="{ 'lyric-col--anchor': isChordAnchor(cell) }"
           >
-            <div
-              class="chord-cell"
-              :class="{ 'chord-cell--on-anchor': isChordAnchor(cell) }"
-            >
+            <div class="chord-cell">
               <ChordDiagramSvg
                 v-if="cell.chord && chordStyle === 'diagram'"
                 :name="displayChord(cell.chord)"
@@ -92,10 +89,7 @@ function isChordAnchor(cell: ChordCell): boolean {
           class="lyric-unit"
           :class="{ 'lyric-unit--anchor': isChordAnchor(cell) }"
         >
-          <div
-            class="chord-cell"
-            :class="{ 'chord-cell--on-anchor': isChordAnchor(cell) }"
-          >
+          <div class="chord-cell">
             <ChordDiagramSvg
               v-if="cell.chord && chordStyle === 'diagram'"
               :name="displayChord(cell.chord)"
@@ -157,57 +151,81 @@ function isChordAnchor(cell: ChordCell): boolean {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
-  gap: 0.25em 0.35em;
+  column-gap: 0;
+  row-gap: 0.15em;
 }
 .lyric-col {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
   flex: 0 1 auto;
   min-width: 0;
-}
-.lyric-col--anchor {
-  flex: 0 0 auto;
+  padding-top: 4.45em;
+  overflow: visible;
 }
 .lyric-col .chord-cell {
-  margin-bottom: 0.08em;
-  min-height: 4.35em;
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  min-height: 4.25em;
+  min-width: 0;
+  margin-bottom: 0;
+  display: flex;
+  justify-content: center;
+  align-items: flex-end;
+}
+.lyric-col--anchor :deep(.chord-diagram) {
+  min-width: 0;
+}
+.lyric-col--anchor :deep(.chord-svg) {
+  width: 2.35em;
+  min-width: 0;
 }
 .lyric-block--flow {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
-  gap: 0.25em 0.35em;
+  column-gap: 0;
+  row-gap: 0.15em;
   width: 100%;
 }
 .lyric-unit {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
   flex: 0 1 auto;
   min-width: 0;
   max-width: 100%;
-}
-.lyric-unit--anchor {
-  flex: 0 0 auto;
+  padding-top: 4.45em;
+  overflow: visible;
 }
 .lyric-block--flow .chord-cell {
-  margin-bottom: 0.08em;
-  min-height: 4.35em;
-}
-.lyric-unit--anchor .chord-cell {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  min-height: 4.25em;
   min-width: 0;
-}
-.chord-cell {
-  flex: 0 0 auto;
-  min-width: 2.85em;
+  margin-bottom: 0;
   display: flex;
   justify-content: center;
   align-items: flex-end;
 }
-.chord-cell--on-anchor {
+.lyric-unit--anchor :deep(.chord-diagram) {
   min-width: 0;
-  max-width: 100%;
+}
+.lyric-unit--anchor :deep(.chord-svg) {
+  width: 2.35em;
+  min-width: 0;
+}
+.chord-cell {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: center;
+  align-items: flex-end;
 }
 .chord-text {
   font-size: 0.82em;
@@ -217,24 +235,24 @@ function isChordAnchor(cell: ChordCell): boolean {
   padding-bottom: 0.15em;
 }
 .chord-empty {
-  min-width: 2.85em;
-  min-height: 2.85em;
-}
-.lyric-unit--anchor .chord-empty {
-  min-width: 0.35em;
-  min-height: 2.85em;
+  min-width: 0;
+  width: 0;
+  min-height: 0;
+  height: 0;
+  overflow: hidden;
 }
 .lyric-block--flow .lyric-cell {
   flex: none;
   max-width: 100%;
   word-break: break-word;
-  text-align: center;
 }
 .lyric-cell {
   flex: 0 1 auto;
   min-width: 0;
   font-size: inherit;
   line-height: inherit;
+  align-self: stretch;
+  text-align: left;
 }
 .lyric-cell--anchored {
   text-decoration: underline;
