@@ -8,7 +8,6 @@ import type { UiPrefs, UiPrefsPatch } from "./types/uiPrefs"
 
 const route = useRoute()
 const alwaysOnTop = ref(false)
-const pinError = ref<string | null>(null)
 
 let unlistenFocus: (() => void) | null = null
 let unlistenResume: (() => void) | null = null
@@ -24,11 +23,8 @@ async function applyAlwaysOnTopFromState() {
   const win = getCurrentWindow()
   try {
     await win.setAlwaysOnTop(alwaysOnTop.value)
-    pinError.value = null
   } catch {
-    if (alwaysOnTop.value) {
-      pinError.value = "无法固定窗口（部分 Linux 桌面不支持）"
-    }
+    /* ignore — platform may not support always-on-top */
   }
 }
 
@@ -39,11 +35,8 @@ async function loadPrefs() {
   const win = getCurrentWindow()
   try {
     await win.setAlwaysOnTop(alwaysOnTop.value)
-    pinError.value = null
   } catch {
-    if (alwaysOnTop.value) {
-      pinError.value = "无法固定窗口（部分 Linux 桌面不支持）"
-    }
+    /* ignore */
   }
 }
 
@@ -52,12 +45,11 @@ async function togglePin() {
   const win = getCurrentWindow()
   try {
     await win.setAlwaysOnTop(next)
-    pinError.value = null
     alwaysOnTop.value = next
     const patch: UiPrefsPatch = { alwaysOnTop: next }
     await invoke<UiPrefs>("set_ui_prefs", patch)
   } catch {
-    pinError.value = "无法固定窗口（部分 Linux 桌面不支持）"
+    /* ignore */
   }
 }
 
@@ -113,7 +105,6 @@ onUnmounted(() => {
         </button>
       </div>
     </header>
-    <p v-if="pinError" class="chrome-warn" role="status">{{ pinError }}</p>
     <div class="shell-content">
       <RouterView />
     </div>
@@ -223,14 +214,5 @@ body {
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border: 0;
-}
-.chrome-warn {
-  margin: 0;
-  padding: 0.35rem 0.85rem;
-  font-size: 0.82rem;
-  color: var(--gs-danger);
-  background: var(--gs-bg-surface);
-  border-bottom: 1px solid var(--gs-border);
-  flex-shrink: 0;
 }
 </style>

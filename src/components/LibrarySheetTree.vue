@@ -162,8 +162,8 @@ function onFolderHitClick(row: LibraryTreeRow & { kind: "folder" }, e: MouseEven
             type="button"
             class="folder-icon-hit"
             draggable="false"
-            title="选中为新建/导入目标"
-            aria-label="选中文件夹"
+            title="选择文件夹"
+            aria-label="选择文件夹"
             @click.stop="$emit('selectFolder', row.id)"
             @mousedown.stop
             @pointerdown.stop

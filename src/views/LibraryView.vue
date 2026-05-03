@@ -501,20 +501,6 @@ onUnmounted(() => {
           @input="onSearchInput"
         />
       </label>
-      <div class="ctx-row">
-        <span class="ctx-label">目标文件夹</span>
-        <button
-          type="button"
-          class="ctx-btn"
-          :class="{ on: contextFolderId === null }"
-          @click="contextFolderId = null"
-        >
-          根目录
-        </button>
-      </div>
-      <p class="hint small">
-        点击文件夹名：在此下新建 / 导入 / <strong>新建曲谱</strong>；右侧图标可重命名、新建子文件夹、删除（须为空）。曲谱 / 文件夹可<strong>拖到文件夹一整行</strong>移入。
-      </p>
       <div
         class="tree-drop-root"
         :class="{ 'is-target': highlightDropRoot }"
@@ -550,7 +536,6 @@ onUnmounted(() => {
         />
         <button type="button" @click="createFolder">创建</button>
       </div>
-      <p class="hint small">创建位置取决于当前选中的文件夹（蓝色高亮）。未选中则在根目录创建。</p>
       </div>
 
       <div class="sidebar-footer">
@@ -825,30 +810,6 @@ onUnmounted(() => {
   border-radius: var(--gs-radius-sm);
   background: var(--gs-bg-surface);
   color: var(--gs-text);
-}
-.ctx-row {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-  flex-wrap: wrap;
-  margin-bottom: 0.35rem;
-}
-.ctx-label {
-  font-size: 0.75rem;
-  color: var(--gs-text-muted);
-}
-.ctx-btn {
-  font-size: 0.78rem;
-  padding: 0.2rem 0.45rem;
-  border-radius: 4px;
-  border: 1px solid var(--gs-border);
-  background: var(--gs-bg-surface);
-  cursor: pointer;
-}
-.ctx-btn.on {
-  border-color: var(--gs-primary-border);
-  background: var(--gs-primary-bg);
-  font-weight: 600;
 }
 .tree-drop-root {
   flex-shrink: 0;
