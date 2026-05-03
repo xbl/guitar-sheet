@@ -1,1 +1,6 @@
+#!/usr/bin/env sh
+# 推送前：ESLint + Vitest + src-tauri 单元测试；任一步失败则阻止 push。
+set -e
 npm run lint
+npm test
+npm run test:rust

@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "lint": "eslint \"src/**/*.{ts,vue}\"",
     "test": "vitest run",
+    "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml",
     "test:watch": "vitest",
     "tauri": "tauri",
     "prepare": "husky"
