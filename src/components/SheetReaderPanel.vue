@@ -13,17 +13,16 @@ import { useRouter } from "vue-router"
 import { invoke } from "@tauri-apps/api/core"
 import { convertFileSrc } from "@tauri-apps/api/core"
 import { readFile, readTextFile } from "@tauri-apps/plugin-fs"
-import * as pdfjsLib from "pdfjs-dist"
-import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url"
 import type { SheetMeta } from "../types/sheet"
-import ChordSheetRenderer from "./chords/ChordSheetRenderer.vue"
 import PracticeToolbar from "./practice/PracticeToolbar.vue"
 import ReaderChordSettingsPanel from "./ReaderChordSettingsPanel.vue"
+import ImageSheetReader from "./sheet/ImageSheetReader.vue"
+import PdfSheetReader from "./sheet/PdfSheetReader.vue"
+import TextSheetReader from "./sheet/TextSheetReader.vue"
 import {
   convertAsciiChordSheetToChordPro,
   shouldConvertAsciiToChordPro,
 } from "../chords/convertAsciiChordSheet"
-import { looksLikeChordSheet } from "../chords/parseChordSheet"
 import {
   normalizeReaderChordPrefs,
   readerChordPrefsInjectionKey,
@@ -48,8 +47,6 @@ import { normalizePracticePreferences } from "../practice/practicePreferences"
 import { confirmDestructive } from "../utils/confirmTwice"
 import { dataTransferLooksLikeFileDrag, inferAttachmentExtension } from "../utils/attachmentDrop"
 import { showToast } from "../utils/toast"
-
-pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 
 const props = withDefaults(
   defineProps<{
@@ -98,7 +95,7 @@ watch(
   },
 )
 const imgSrc = ref("")
-const textAreaRef = ref<HTMLTextAreaElement | null>(null)
+const textSheetReaderRef = ref<InstanceType<typeof TextSheetReader> | null>(null)
 const titleInputRef = ref<HTMLInputElement | null>(null)
 const readerBodyRef = ref<HTMLElement | null>(null)
 const practicePlaying = ref(false)
@@ -402,11 +399,14 @@ async function loadImageSrc(fsPath: string) {
   }
 }
 
-const pdfPage = ref(1)
-const pdfTotal = ref(0)
-const canvasEl = ref<HTMLCanvasElement | null>(null)
-let pdfDoc: import("pdfjs-dist").PDFDocumentProxy | null = null
-let renderTask: { cancel: () => void } | null = null
+/** 独立 PDF 谱：与文本谱内嵌 `{{PDF:…}}` 相同，用 `<embed>` + blob / asset URL */
+const standalonePdfEmbedUrl = ref("")
+
+function revokeStandalonePdfEmbed() {
+  const u = standalonePdfEmbedUrl.value
+  if (u.startsWith("blob:")) URL.revokeObjectURL(u)
+  standalonePdfEmbedUrl.value = ""
+}
 
 async function load() {
   error.value = null
@@ -416,11 +416,9 @@ async function load() {
   editingText.value = false
   titleEditing.value = false
   revokePreviewBlobUrls()
+  revokeStandalonePdfEmbed()
   revokeImageBlobUrl()
   imgSrc.value = ""
-  pdfDoc = null
-  pdfTotal.value = 0
-  pdfPage.value = 1
   meta.value = null
 
   const id = props.sheetId
@@ -437,14 +435,13 @@ async function load() {
     } else if (m.kind === "image") {
       await loadImageSrc(path)
     } else if (m.kind === "pdf") {
-      const loadingTask = pdfjsLib.getDocument({
-        url: convertFileSrc(path),
-      })
-      pdfDoc = await loadingTask.promise
-      pdfTotal.value = pdfDoc.numPages
-      pdfPage.value = 1
-      await nextTick()
-      await renderPdfPage()
+      try {
+        const bytes = await readFile(path)
+        const blob = new Blob([bytes], { type: "application/pdf" })
+        standalonePdfEmbedUrl.value = URL.createObjectURL(blob)
+      } catch {
+        standalonePdfEmbedUrl.value = convertFileSrc(path)
+      }
     }
   } catch (e) {
     error.value = String(e)
@@ -474,7 +471,7 @@ function enterBodyEdit() {
   if (!meta.value || meta.value.kind !== "text" || editingText.value) return
   textDraft.value = textBaseline.value
   editingText.value = true
-  void nextTick(() => textAreaRef.value?.focus())
+  void nextTick(() => textSheetReaderRef.value?.getTextarea()?.focus())
 }
 
 function startTitleEdit() {
@@ -565,41 +562,6 @@ async function removeSheet() {
   }
 }
 
-async function renderPdfPage() {
-  if (!pdfDoc || !canvasEl.value) return
-  const page = await pdfDoc.getPage(pdfPage.value)
-  const viewport = page.getViewport({ scale: 1.25 })
-  const canvas = canvasEl.value
-  const ctx = canvas.getContext("2d")
-  if (!ctx) return
-  if (renderTask) {
-    try {
-      renderTask.cancel()
-    } catch {
-      /* ignore */
-    }
-  }
-  canvas.width = viewport.width
-  canvas.height = viewport.height
-  const task = page.render({ canvasContext: ctx, viewport })
-  renderTask = task
-  await task.promise
-}
-
-function prevPdf() {
-  if (pdfPage.value > 1) {
-    pdfPage.value -= 1
-    void renderPdfPage()
-  }
-}
-
-function nextPdf() {
-  if (pdfDoc && pdfPage.value < pdfTotal.value) {
-    pdfPage.value += 1
-    void renderPdfPage()
-  }
-}
-
 function mimeToImageExtension(mime: string): string {
   if (mime === "image/png") return "png"
   if (mime === "image/jpeg") return "jpg"
@@ -618,7 +580,7 @@ function uint8ToBase64(bytes: Uint8Array): string {
 }
 
 function insertAtCursor(insert: string) {
-  const ta = textAreaRef.value
+  const ta = textSheetReaderRef.value?.getTextarea() ?? null
   const text = textDraft.value
   if (!ta) {
     textDraft.value = text + insert
@@ -801,6 +763,7 @@ onUnmounted(() => {
     document.removeEventListener("mousedown", readerSettingsDismiss, true)
   }
   revokePreviewBlobUrls()
+  revokeStandalonePdfEmbed()
   revokeImageBlobUrl()
 })
 </script>
@@ -855,14 +818,6 @@ onUnmounted(() => {
           </button>
         </template>
       </div>
-      <details v-if="meta?.kind === 'pdf'" class="reader-overflow-narrow">
-        <summary class="overflow-sum" title="翻页">⋯</summary>
-        <div class="overflow-panel overflow-panel-row">
-          <button type="button" :disabled="pdfPage <= 1" @click="prevPdf">上一页</button>
-          <span>{{ pdfPage }} / {{ pdfTotal || "…" }}</span>
-          <button type="button" :disabled="!pdfDoc || pdfPage >= pdfTotal" @click="nextPdf">下一页</button>
-        </div>
-      </details>
     </header>
 
     <div class="reader-body">
@@ -917,92 +872,33 @@ onUnmounted(() => {
         </div>
 
         <template v-else-if="meta">
-        <section v-if="meta.kind === 'text'" class="text-wrap">
-          <div class="text-sheet-main">
-              <p v-if="editingText" class="paste-hint">
-                提示：Ctrl+V 或拖拽可插入多张图片与多个 PDF；失焦自动保存正文（空白不保存）。若使用「和弦在上、歌词在下」的文本排版，退出编辑时会自动转为
-                <code>[和弦]</code> 内嵌格式。
-              </p>
-              <p v-else class="paste-hint paste-hint--preview">
-                可将图片或 PDF 拖入此处，自动插入到正文末尾并保存（无需先点进编辑）。
-              </p>
-              <div
-                class="text-body-drop-shell"
-                :class="{ 'text-body-drop-shell--active': bodyDropFileHighlight }"
-                @dragenter="onBodyDragEnter"
-                @dragleave="onBodyDragLeave"
-                @dragover="onBodyDragOver"
-                @drop="onBodyDrop"
-              >
-                <textarea
-                  v-if="editingText"
-                  ref="textAreaRef"
-                  v-model="textDraft"
-                  class="tab edit"
-                  :style="{ fontSize: fontPx + 'px', lineHeight: String(TEXT_LINE_HEIGHT) }"
-                  @paste="onTextPaste"
-                  @blur="onTextBlur"
-                />
-                <div
-                  v-else
-                  class="tab text-preview"
-                  role="button"
-                  tabindex="0"
-                  title="点击编辑正文；也可拖入图片或 PDF"
-                  :style="{ fontSize: fontPx + 'px', lineHeight: String(TEXT_LINE_HEIGHT) }"
-                  @click="enterBodyEdit"
-                  @keydown.enter.prevent="enterBodyEdit"
-                >
-                <template v-for="(seg, i) in textPreviewSegments" :key="i">
-                  <ChordSheetRenderer
-                    v-if="seg.type === 'text' && looksLikeChordSheet(seg.content)"
-                    :source="seg.content"
-                    :transpose-semitones="chordPrefs.transposeSemitones"
-                    :simplify-chords="chordPrefs.simplifyChords"
-                    :chord-style="chordPrefs.chordStyle"
-                    :parallel-display="chordPrefs.parallelDisplay"
-                  />
-                  <pre
-                    v-else-if="seg.type === 'text'"
-                    class="text-chunk"
-                  >{{ seg.content }}</pre>
-                  <figure v-else-if="seg.type === 'img'" class="inline-img-wrap">
-                    <img
-                      v-if="previewUrls[seg.file]"
-                      :src="previewUrls[seg.file]"
-                      :alt="seg.file"
-                      class="inline-img"
-                    />
-                    <p v-else class="img-missing">（无法加载图片：{{ seg.file }}）</p>
-                  </figure>
-                  <figure v-else-if="seg.type === 'pdf'" class="inline-pdf-wrap">
-                    <embed
-                      v-if="pdfPreviewUrls[seg.file]"
-                      class="inline-pdf-embed"
-                      :src="pdfPreviewUrls[seg.file]"
-                      type="application/pdf"
-                      title="内嵌 PDF"
-                    />
-                    <p v-else class="img-missing">（无法加载 PDF：{{ seg.file }}）</p>
-                  </figure>
-                </template>
-              </div>
-              </div>
-            </div>
-        </section>
+        <TextSheetReader
+          v-if="meta.kind === 'text'"
+          ref="textSheetReaderRef"
+          v-model:text-draft="textDraft"
+          :editing-text="editingText"
+          :text-preview-segments="textPreviewSegments"
+          :preview-urls="previewUrls"
+          :pdf-preview-urls="pdfPreviewUrls"
+          :body-drop-file-highlight="bodyDropFileHighlight"
+          :font-px="fontPx"
+          :line-height="TEXT_LINE_HEIGHT"
+          :transpose-semitones="chordPrefs.transposeSemitones"
+          :simplify-chords="chordPrefs.simplifyChords"
+          :chord-style="chordPrefs.chordStyle"
+          :parallel-display="chordPrefs.parallelDisplay"
+          @paste="onTextPaste"
+          @blur="onTextBlur"
+          @enter-edit="enterBodyEdit"
+          @dragenter="onBodyDragEnter"
+          @dragleave="onBodyDragLeave"
+          @dragover="onBodyDragOver"
+          @drop="onBodyDrop"
+        />
 
-        <section v-else-if="meta.kind === 'image'" class="img-wrap">
-          <img v-if="imgSrc" :src="imgSrc" alt="sheet" />
-        </section>
+        <ImageSheetReader v-else-if="meta.kind === 'image'" :img-src="imgSrc" />
 
-        <section v-else-if="meta.kind === 'pdf'" class="pdf-wrap">
-          <div class="pdf-controls">
-            <button type="button" :disabled="pdfPage <= 1" @click="prevPdf">上一页</button>
-            <span>{{ pdfPage }} / {{ pdfTotal || "…" }}</span>
-            <button type="button" :disabled="!pdfDoc || pdfPage >= pdfTotal" @click="nextPdf">下一页</button>
-          </div>
-          <canvas ref="canvasEl" class="pdf-canvas" />
-        </section>
+        <PdfSheetReader v-else-if="meta.kind === 'pdf'" :embed-url="standalonePdfEmbedUrl" />
         </template>
       </div>
     </div>
@@ -1035,57 +931,6 @@ onUnmounted(() => {
   padding: 0.65rem 0.75rem;
   border-bottom: 1px solid var(--gs-border);
   background: var(--gs-bg-surface);
-}
-.reader-overflow-narrow {
-  display: none;
-  position: relative;
-  margin-left: auto;
-}
-.overflow-sum {
-  cursor: pointer;
-  list-style: none;
-  width: 2rem;
-  text-align: center;
-  font-size: 1.1rem;
-  line-height: 1;
-  padding: 0.25rem;
-  border-radius: var(--gs-radius-sm);
-  border: 1px solid var(--gs-border);
-  background: var(--gs-bg-muted);
-  color: var(--gs-text-muted);
-}
-.reader-overflow-narrow summary::-webkit-details-marker {
-  display: none;
-}
-.overflow-panel {
-  position: absolute;
-  z-index: 5;
-  margin-top: 0.25rem;
-  right: 0;
-  padding: 0.5rem 0.65rem;
-  border: 1px solid var(--gs-border);
-  border-radius: var(--gs-radius-sm);
-  background: var(--gs-bg-surface);
-  box-shadow: var(--gs-shadow-sm);
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  min-width: 12rem;
-}
-.overflow-panel-row {
-  flex-direction: row;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem;
-  min-width: auto;
-}
-@container reader (max-width: 36rem) {
-  .reader-overflow-narrow {
-    display: block;
-  }
-  .pdf-wrap .pdf-controls {
-    display: none;
-  }
 }
 .title-block {
   display: flex;
@@ -1241,161 +1086,6 @@ onUnmounted(() => {
   padding: 2rem;
   color: var(--gs-text-muted);
   font-size: 0.95rem;
-}
-.text-wrap {
-  padding: 0.75rem 1rem 1rem;
-  flex: 1 1 auto;
-  min-height: min-content;
-  display: flex;
-  flex-direction: column;
-}
-.text-sheet-main {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  min-height: min-content;
-}
-.text-body-drop-shell {
-  flex: 1 1 auto;
-  min-height: min-content;
-  display: flex;
-  flex-direction: column;
-  border-radius: var(--gs-radius-md);
-  transition:
-    box-shadow 0.16s ease,
-    background 0.16s ease;
-}
-.text-body-drop-shell--active {
-  background: var(--gs-drop-zone-active-bg);
-  box-shadow:
-    0 0 0 2px var(--gs-drop-zone-active-shadow),
-    inset 0 0 0 1px color-mix(in srgb, var(--gs-drop-zone-active-border) 55%, transparent);
-}
-@media (prefers-reduced-motion: reduce) {
-  .text-body-drop-shell {
-    transition: none;
-  }
-}
-.paste-hint {
-  margin: 0 0 0.5rem;
-  font-size: 0.8rem;
-  color: var(--gs-text-muted);
-  line-height: 1.4;
-}
-.tab {
-  margin: 0;
-  width: 100%;
-  flex: 1 1 auto;
-  min-height: 10rem;
-  box-sizing: border-box;
-  white-space: pre-wrap;
-  word-break: break-word;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  background: var(--gs-bg-muted);
-  border: 1px solid var(--gs-border);
-  border-radius: var(--gs-radius-md);
-  padding: 1rem;
-  overflow: auto;
-}
-.tab.edit {
-  flex: 1 1 auto;
-  min-height: 0;
-  resize: none;
-  line-height: inherit;
-  color: var(--gs-text);
-  caret-color: var(--gs-text);
-}
-/** 预览正文由外层 `.reader-scroll` 滚动，便于 `useAutoScroll` 驱动播放滚动 */
-.tab.text-preview {
-  overflow: visible;
-  min-height: min-content;
-}
-.text-preview {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  cursor: pointer;
-  border-radius: var(--gs-radius-sm);
-  flex: 1 1 auto;
-}
-.text-preview:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--gs-primary-border) 65%, transparent);
-  outline-offset: 2px;
-}
-.text-chunk {
-  margin: 0;
-  white-space: pre-wrap;
-  word-break: break-word;
-  font-family: inherit;
-  font-size: inherit;
-  line-height: inherit;
-}
-.inline-img-wrap {
-  margin: 0;
-  padding: 0;
-  display: flex;
-  justify-content: flex-start;
-}
-.inline-img {
-  max-width: 100%;
-  height: auto;
-  display: block;
-  border-radius: var(--gs-radius-sm);
-  border: 1px solid var(--gs-border);
-}
-.img-missing {
-  margin: 0;
-  font-size: 0.85rem;
-  color: var(--gs-text-muted);
-}
-.inline-pdf-wrap {
-  margin: 0;
-  width: 100%;
-  min-height: clamp(16rem, 48vh, 36rem);
-  display: flex;
-  flex-direction: column;
-}
-.inline-pdf-embed {
-  display: block;
-  width: 100%;
-  flex: 1 1 auto;
-  min-height: clamp(14rem, 45vh, 32rem);
-  height: clamp(16rem, 52vh, 40rem);
-  max-height: min(78vh, 44rem);
-  border: 1px solid var(--gs-border);
-  border-radius: var(--gs-radius-sm);
-  background: var(--gs-bg-muted);
-}
-.img-wrap {
-  flex: 1 1 auto;
-  padding: 1rem;
-  display: flex;
-  justify-content: center;
-  align-items: flex-start;
-  min-height: 0;
-}
-.img-wrap img {
-  max-width: 100%;
-  height: auto;
-}
-.pdf-wrap {
-  flex: 1 1 auto;
-  padding: 1rem;
-  min-height: 0;
-}
-.pdf-controls {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  margin-bottom: 0.75rem;
-}
-.pdf-canvas {
-  display: block;
-  margin: 0 auto;
-  max-width: 100%;
-  height: auto;
-  border: 1px solid var(--gs-border);
 }
 button {
   cursor: pointer;
