@@ -43,7 +43,7 @@ import {
 import { useAutoScroll } from "../composables/useAutoScroll"
 import { useMetronome } from "../composables/useMetronome"
 import { normalizePracticePreferences } from "../practice/practicePreferences"
-import { confirmTwice } from "../utils/confirmTwice"
+import { confirmDestructive } from "../utils/confirmTwice"
 import { dataTransferLooksLikeFileDrag, inferAttachmentExtension } from "../utils/attachmentDrop"
 import { showToast } from "../utils/toast"
 
@@ -539,9 +539,8 @@ async function removeSheet() {
   const id = props.sheetId
   if (!id || !meta.value) return
   if (
-    !(await confirmTwice(
-      `删除「${meta.value.display_title}」？本地文件会一并删除。`,
-      "再次确认：删除后不可恢复，确定删除吗？",
+    !(await confirmDestructive(
+      `删除「${meta.value.display_title}」？本地文件会一并删除，且不可恢复。`,
     ))
   )
     return

@@ -22,7 +22,7 @@ import {
   registerLibraryPointerUi,
   takeLibraryPointerPayload,
 } from "../utils/treeDnD"
-import { confirmTwice } from "../utils/confirmTwice"
+import { confirmDestructive } from "../utils/confirmTwice"
 import { showToast } from "../utils/toast"
 
 const sheets = ref<SheetMeta[]>([])
@@ -258,9 +258,8 @@ function cancelFolderLinePrompt() {
 
 async function onDeleteFolder(payload: { id: string; name: string }) {
   if (
-    !(await confirmTwice(
-      `删除文件夹「${payload.name}」？仅允许删除空文件夹（无子文件夹、无曲谱）。`,
-      "再次确认：删除后不可恢复，确定删除吗？",
+    !(await confirmDestructive(
+      `删除文件夹「${payload.name}」？仅允许删除空文件夹（无子文件夹、无曲谱）；删除后不可恢复。`,
     ))
   ) {
     return
@@ -457,9 +456,8 @@ function onSearchInput() {
 
 async function onDeleteSheet(payload: { id: string; title: string }) {
   if (
-    !(await confirmTwice(
-      `删除「${payload.title}」？本地文件会一并删除。`,
-      "再次确认：删除后不可恢复，确定删除吗？",
+    !(await confirmDestructive(
+      `删除「${payload.title}」？本地文件会一并删除，且不可恢复。`,
     ))
   )
     return
