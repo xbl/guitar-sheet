@@ -11,6 +11,7 @@ When implementing or extending a **feature** (not pure docs or config-only chang
 
 - **Client (Tauri / web UI)**: user-visible behavior, commands, state, and error handling for the feature are wired and testable in the app.
 - **Server (Rust backend / commands / persistence)**: APIs, commands, or data paths the feature needs exist and are used by the client; no “UI-only stub” that leaves the backend missing or TODO.
+- **Regression tests**: behavior worth keeping has automated coverage per `feature-implementation-tests` (Vitest / `cargo test` as applicable).
 
 ## What to avoid
 
