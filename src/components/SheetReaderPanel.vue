@@ -2,6 +2,7 @@
 import {
   computed,
   nextTick,
+  onMounted,
   onUnmounted,
   provide,
   reactive,
@@ -106,6 +107,13 @@ let imageBlobUrl: string | null = null
 const readerSettingsOpen = ref(false)
 const readerSettingsSlotRef = ref<HTMLElement | null>(null)
 let readerSettingsDismiss: ((e: MouseEvent) => void) | null = null
+
+/** 文件拖入正文/编辑区时高亮投放壳层（HTML5 drag） */
+const bodyDropFileHighlight = ref(false)
+
+function resetBodyFileDropHighlight() {
+  bodyDropFileHighlight.value = false
+}
 
 function onReaderSettingsEscape(e: KeyboardEvent) {
   if (e.key === "Escape") readerSettingsOpen.value = false
@@ -660,29 +668,6 @@ function gatherFilesFromDataTransfer(dt: DataTransfer): File[] {
       if (f) out.push(f)
     }
   }
-  // #region agent log
-  fetch("http://127.0.0.1:7268/ingest/f8b42a76-b477-4e11-b3eb-38547a546c8e", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Debug-Session-Id": "d399f4",
-    },
-    body: JSON.stringify({
-      sessionId: "d399f4",
-      hypothesisId: "B",
-      location: "SheetReaderPanel.vue:gatherFilesFromDataTransfer",
-      message: "gathered files",
-      data: {
-        filesLen: dt.files?.length ?? 0,
-        itemsLen: dt.items?.length ?? 0,
-        outCount: out.length,
-        names: out.map((f) => f.name),
-        types: out.map((f) => f.type),
-      },
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {})
-  // #endregion
   return out
 }
 
@@ -691,31 +676,6 @@ async function snippetFromDroppedFile(file: File): Promise<string | null> {
   if (!buf.length) return null
   const head = buf.subarray(0, Math.min(8, buf.length))
   const ext = inferAttachmentExtension(file.name, file.type, head)
-  // #region agent log
-  fetch("http://127.0.0.1:7268/ingest/f8b42a76-b477-4e11-b3eb-38547a546c8e", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Debug-Session-Id": "d399f4",
-    },
-    body: JSON.stringify({
-      sessionId: "d399f4",
-      hypothesisId: "C",
-      location: "SheetReaderPanel.vue:snippetFromDroppedFile",
-      message: "after infer ext",
-      data: {
-        name: file.name,
-        mime: file.type,
-        ext,
-        head0: head[0],
-        head1: head[1],
-        head2: head[2],
-        head3: head[3],
-      },
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {})
-  // #endregion
   if (!ext) return null
   if (!props.sheetId) return null
   const b64 = uint8ToBase64(buf)
@@ -734,47 +694,10 @@ async function appendDroppedAttachments(files: File[]) {
       const s = await snippetFromDroppedFile(file)
       if (s) snippets.push(s.trimEnd())
     } catch (err) {
-      // #region agent log
-      fetch("http://127.0.0.1:7268/ingest/f8b42a76-b477-4e11-b3eb-38547a546c8e", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Debug-Session-Id": "d399f4",
-        },
-        body: JSON.stringify({
-          sessionId: "d399f4",
-          hypothesisId: "D",
-          location: "SheetReaderPanel.vue:appendDroppedAttachments",
-          message: "snippet/invoke error",
-          data: { err: String(err), fileName: file.name },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {})
-      // #endregion
       error.value = String(err)
       return
     }
   }
-  // #region agent log
-  fetch("http://127.0.0.1:7268/ingest/f8b42a76-b477-4e11-b3eb-38547a546c8e", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Debug-Session-Id": "d399f4",
-    },
-    body: JSON.stringify({
-      sessionId: "d399f4",
-      hypothesisId: "E",
-      location: "SheetReaderPanel.vue:appendDroppedAttachments",
-      message: "before branch",
-      data: {
-        snippetsCount: snippets.length,
-        editing: editingText.value,
-      },
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {})
-  // #endregion
   if (!snippets.length) return
   if (editingText.value) {
     for (const line of snippets) {
@@ -789,69 +712,37 @@ async function appendDroppedAttachments(files: File[]) {
   await saveTextBody()
 }
 
+function onBodyDragEnter(e: DragEvent) {
+  if (!props.sheetId || meta.value?.kind !== "text") return
+  if (!dataTransferLooksLikeFileDrag(e.dataTransfer)) return
+  e.preventDefault()
+  bodyDropFileHighlight.value = true
+}
+
+function onBodyDragLeave(e: DragEvent) {
+  if (!props.sheetId || meta.value?.kind !== "text") return
+  const shell = e.currentTarget as HTMLElement
+  const rel = e.relatedTarget as Node | null
+  if (rel && shell.contains(rel)) return
+  bodyDropFileHighlight.value = false
+}
+
 function onBodyDragOver(e: DragEvent) {
   if (!props.sheetId || meta.value?.kind !== "text") return
-  const types = e.dataTransfer ? [...e.dataTransfer.types] : []
-  const hasFiles = e.dataTransfer?.types?.includes("Files") ?? false
   const looksLikeFile = dataTransferLooksLikeFileDrag(e.dataTransfer)
-  // #region agent log
-  fetch("http://127.0.0.1:7268/ingest/f8b42a76-b477-4e11-b3eb-38547a546c8e", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Debug-Session-Id": "d399f4",
-    },
-    body: JSON.stringify({
-      sessionId: "d399f4",
-      hypothesisId: "A",
-      location: "SheetReaderPanel.vue:onBodyDragOver",
-      message: "dragover",
-      data: {
-        sheetId: props.sheetId,
-        kind: meta.value?.kind,
-        types,
-        hasFiles,
-        looksLikeFile,
-        willPrevent: looksLikeFile,
-      },
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {})
-  // #endregion
   if (looksLikeFile && e.dataTransfer) {
     e.preventDefault()
     e.dataTransfer.dropEffect = "copy"
+    bodyDropFileHighlight.value = true
   }
 }
 
 async function onBodyDrop(e: DragEvent) {
   if (!props.sheetId || meta.value?.kind !== "text") return
+  resetBodyFileDropHighlight()
   const dt = e.dataTransfer
   if (!dt) return
-  const types = [...dt.types]
   const files = gatherFilesFromDataTransfer(dt)
-  // #region agent log
-  fetch("http://127.0.0.1:7268/ingest/f8b42a76-b477-4e11-b3eb-38547a546c8e", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Debug-Session-Id": "d399f4",
-    },
-    body: JSON.stringify({
-      sessionId: "d399f4",
-      hypothesisId: "A",
-      location: "SheetReaderPanel.vue:onBodyDrop",
-      message: "drop start",
-      data: {
-        types,
-        fileCount: files.length,
-        sheetId: props.sheetId,
-        kind: meta.value?.kind,
-      },
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {})
-  // #endregion
   if (!files.length) return
   e.preventDefault()
   await appendDroppedAttachments(files)
@@ -888,7 +779,12 @@ watch(
   },
 )
 
+onMounted(() => {
+  document.addEventListener("dragend", resetBodyFileDropHighlight)
+})
+
 onUnmounted(() => {
+  document.removeEventListener("dragend", resetBodyFileDropHighlight)
   if (props.sheetId) void flushReaderStateNow(props.sheetId)
   document.removeEventListener("keydown", onReaderSettingsEscape)
   if (readerSettingsDismiss) {
@@ -1020,29 +916,33 @@ onUnmounted(() => {
               <p v-else class="paste-hint paste-hint--preview">
                 可将图片或 PDF 拖入此处，自动插入到正文末尾并保存（无需先点进编辑）。
               </p>
-              <textarea
-                v-if="editingText"
-                ref="textAreaRef"
-                v-model="textDraft"
-                class="tab edit"
-                :style="{ fontSize: fontPx + 'px', lineHeight: String(TEXT_LINE_HEIGHT) }"
-                @paste="onTextPaste"
-                @dragover="onBodyDragOver"
-                @drop="onBodyDrop"
-                @blur="onTextBlur"
-              />
               <div
-                v-else
-                class="tab text-preview"
-                role="button"
-                tabindex="0"
-                title="点击编辑正文；也可拖入图片或 PDF"
-                :style="{ fontSize: fontPx + 'px', lineHeight: String(TEXT_LINE_HEIGHT) }"
-                @click="enterBodyEdit"
-                @keydown.enter.prevent="enterBodyEdit"
+                class="text-body-drop-shell"
+                :class="{ 'text-body-drop-shell--active': bodyDropFileHighlight }"
+                @dragenter="onBodyDragEnter"
+                @dragleave="onBodyDragLeave"
                 @dragover="onBodyDragOver"
                 @drop="onBodyDrop"
               >
+                <textarea
+                  v-if="editingText"
+                  ref="textAreaRef"
+                  v-model="textDraft"
+                  class="tab edit"
+                  :style="{ fontSize: fontPx + 'px', lineHeight: String(TEXT_LINE_HEIGHT) }"
+                  @paste="onTextPaste"
+                  @blur="onTextBlur"
+                />
+                <div
+                  v-else
+                  class="tab text-preview"
+                  role="button"
+                  tabindex="0"
+                  title="点击编辑正文；也可拖入图片或 PDF"
+                  :style="{ fontSize: fontPx + 'px', lineHeight: String(TEXT_LINE_HEIGHT) }"
+                  @click="enterBodyEdit"
+                  @keydown.enter.prevent="enterBodyEdit"
+                >
                 <template v-for="(seg, i) in textPreviewSegments" :key="i">
                   <ChordSheetRenderer
                     v-if="seg.type === 'text' && looksLikeChordSheet(seg.content)"
@@ -1076,6 +976,7 @@ onUnmounted(() => {
                     <p v-else class="img-missing">（无法加载 PDF：{{ seg.file }}）</p>
                   </figure>
                 </template>
+              </div>
               </div>
             </div>
         </section>
@@ -1345,6 +1246,27 @@ onUnmounted(() => {
   flex-direction: column;
   min-height: 0;
 }
+.text-body-drop-shell {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--gs-radius-md);
+  transition:
+    box-shadow 0.16s ease,
+    background 0.16s ease;
+}
+.text-body-drop-shell--active {
+  background: var(--gs-drop-zone-active-bg);
+  box-shadow:
+    0 0 0 2px var(--gs-drop-zone-active-shadow),
+    inset 0 0 0 1px color-mix(in srgb, var(--gs-drop-zone-active-border) 55%, transparent);
+}
+@media (prefers-reduced-motion: reduce) {
+  .text-body-drop-shell {
+    transition: none;
+  }
+}
 .paste-hint {
   margin: 0 0 0.5rem;
   font-size: 0.8rem;
@@ -1354,6 +1276,7 @@ onUnmounted(() => {
 .tab {
   margin: 0;
   width: 100%;
+  flex: 1 1 auto;
   min-height: 10rem;
   box-sizing: border-box;
   white-space: pre-wrap;
@@ -1366,7 +1289,9 @@ onUnmounted(() => {
   overflow: auto;
 }
 .tab.edit {
-  resize: vertical;
+  flex: 1 1 auto;
+  min-height: 0;
+  resize: none;
   line-height: inherit;
   color: var(--gs-text);
   caret-color: var(--gs-text);
@@ -1377,6 +1302,8 @@ onUnmounted(() => {
   gap: 0.75rem;
   cursor: pointer;
   border-radius: var(--gs-radius-sm);
+  flex: 1 1 auto;
+  min-height: 0;
 }
 .text-preview:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--gs-primary-border) 65%, transparent);
@@ -1411,11 +1338,17 @@ onUnmounted(() => {
 .inline-pdf-wrap {
   margin: 0;
   width: 100%;
+  min-height: clamp(16rem, 48vh, 36rem);
+  display: flex;
+  flex-direction: column;
 }
 .inline-pdf-embed {
   display: block;
   width: 100%;
-  min-height: 14rem;
+  flex: 1 1 auto;
+  min-height: clamp(14rem, 45vh, 32rem);
+  height: clamp(16rem, 52vh, 40rem);
+  max-height: min(78vh, 44rem);
   border: 1px solid var(--gs-border);
   border-radius: var(--gs-radius-sm);
   background: var(--gs-bg-muted);

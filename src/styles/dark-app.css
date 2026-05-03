@@ -23,4 +23,7 @@
   --gs-tree-accent-muted: #79b8ff;
   --gs-tree-row-active: rgba(56, 139, 253, 0.14);
   --gs-tree-chevron: #8b949e;
+  --gs-drop-zone-active-bg: color-mix(in srgb, var(--gs-primary-bg) 92%, var(--gs-bg-muted));
+  --gs-drop-zone-active-border: color-mix(in srgb, var(--gs-primary-border) 75%, var(--gs-border));
+  --gs-drop-zone-active-shadow: color-mix(in srgb, var(--gs-primary-border) 42%, transparent);
 }

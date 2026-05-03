@@ -18,6 +18,7 @@ import type { ConflictEntry, SheetMeta, SyncOutcome } from "../types/sheet"
 import type { TreeDndPayload } from "../utils/treeDnD"
 import {
   clearLibraryPointerPayload,
+  libraryPointerDragPayload,
   registerLibraryPointerUi,
   takeLibraryPointerPayload,
 } from "../utils/treeDnD"
@@ -88,6 +89,8 @@ const importTargetFolderId = computed(() => contextFolderId.value)
 /** 拖放高亮：文件夹 id */
 const highlightDropFolderId = ref<string | null>(null)
 const highlightDropRoot = ref(false)
+/** 指针拖曳谱库行时，用于侧栏整体提示 */
+const libraryDndActive = computed(() => libraryPointerDragPayload.value !== null)
 /** 谱库拖放后强制重载阅读区（路径变化） */
 const readerReloadNonce = ref(0)
 
@@ -501,7 +504,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="layout">
+  <div class="layout" :class="{ 'layout--lib-dnd': libraryDndActive }">
     <aside class="sidebar" :class="{ 'is-collapsed': sidebarCollapsed }">
       <div class="sidebar-top">
         <nav class="side-nav" aria-label="主导航">
@@ -749,6 +752,9 @@ onUnmounted(() => {
   overflow: hidden;
   align-items: stretch;
 }
+.layout--lib-dnd {
+  cursor: grabbing;
+}
 .sidebar {
   width: min(20rem, 42vw);
   min-width: min(20rem, 42vw);
@@ -943,6 +949,17 @@ onUnmounted(() => {
   background: var(--gs-bg-surface);
   color: var(--gs-text);
 }
+.layout--lib-dnd .tree-scroll {
+  box-shadow:
+    inset 0 0 0 2px var(--gs-drop-zone-active-shadow),
+    0 0 0 1px color-mix(in srgb, var(--gs-border) 55%, transparent);
+  background: color-mix(in srgb, var(--gs-drop-zone-active-bg) 55%, var(--gs-bg-surface));
+}
+.layout--lib-dnd .tree-drop-root:not(.is-target) {
+  border-color: color-mix(in srgb, var(--gs-primary-border) 45%, var(--gs-border));
+  background: color-mix(in srgb, var(--gs-primary-bg) 35%, var(--gs-bg-surface));
+}
+
 .tree-drop-root {
   flex-shrink: 0;
   margin-bottom: 0.45rem;

@@ -2,7 +2,10 @@
 import LibrarySheetTree from "./LibrarySheetTree.vue"
 import type { LibraryTreeRow } from "../utils/libraryTree"
 import {
+  clearLibraryPointerDragVisual,
   clearLibraryPointerPayload,
+  libraryPointerDragPayload,
+  markLibraryPointerDragVisual,
   notifyLibraryPointerDrop,
   notifyLibraryPointerHover,
   setLibraryPointerPayload,
@@ -44,6 +47,11 @@ function folderPayload(row: LibraryTreeRow & { kind: "folder" }): TreeDndPayload
   return { kind: "folder", id: row.id }
 }
 
+function isPointerDragSource(row: LibraryTreeRow, kind: "sheet" | "folder"): boolean {
+  const d = libraryPointerDragPayload.value
+  return d !== null && d.kind === kind && d.id === row.id
+}
+
 function attachRowPointerDrag(payload: TreeDndPayload, e: MouseEvent) {
   if (e.button !== 0) return
   const sx = e.clientX
@@ -55,6 +63,7 @@ function attachRowPointerDrag(payload: TreeDndPayload, e: MouseEvent) {
       if (Math.hypot(ev.clientX - sx, ev.clientY - sy) > DRAG_THRESHOLD_PX) {
         moved = true
         setLibraryPointerPayload(payload)
+        markLibraryPointerDragVisual(payload)
         document.body.style.userSelect = "none"
       }
     }
@@ -68,6 +77,7 @@ function attachRowPointerDrag(payload: TreeDndPayload, e: MouseEvent) {
     window.removeEventListener("mousemove", onMove)
     window.removeEventListener("mouseup", onUp)
     document.body.style.userSelect = ""
+    clearLibraryPointerDragVisual()
     if (moved) {
       suppressNextTreeClick = true
       void notifyLibraryPointerDrop(ev.clientX, ev.clientY)
@@ -135,6 +145,7 @@ function onDeleteSheetClick(row: LibraryTreeRow & { kind: "sheet" }, e: MouseEve
           :class="{
             'is-context': contextFolderId === row.id,
             'is-drop-target': highlightDropFolderId === row.id,
+            'folder-line--drag-source': isPointerDragSource(row, 'folder'),
           }"
         >
           <button
@@ -305,7 +316,10 @@ function onDeleteSheetClick(row: LibraryTreeRow & { kind: "sheet" }, e: MouseEve
           <button
             type="button"
             class="sheet-hit"
-            :class="{ active: selectedSheetId === row.id }"
+            :class="{
+              active: selectedSheetId === row.id,
+              'sheet-hit--drag-source': isPointerDragSource(row, 'sheet'),
+            }"
             @mousedown="onSheetRowPointerDown(row, $event)"
             @click="onSheetRowClick(row, $event)"
           >
@@ -364,6 +378,31 @@ function onDeleteSheetClick(row: LibraryTreeRow & { kind: "sheet" }, e: MouseEve
 </template>
 
 <style scoped>
+.folder-line--drag-source {
+  z-index: 2;
+  outline: 2px dashed color-mix(in srgb, var(--gs-tree-accent) 72%, var(--gs-border));
+  outline-offset: 1px;
+  background: color-mix(in srgb, var(--gs-tree-accent) 10%, var(--gs-bg-surface));
+  box-shadow: 0 2px 10px color-mix(in srgb, var(--gs-tree-accent) 18%, transparent);
+}
+@media (prefers-reduced-motion: reduce) {
+  .folder-line--drag-source {
+    box-shadow: none;
+  }
+}
+
+.sheet-hit--drag-source {
+  outline: 2px dashed color-mix(in srgb, var(--gs-primary-border) 65%, var(--gs-border));
+  outline-offset: 1px;
+  background: color-mix(in srgb, var(--gs-primary-bg) 55%, var(--gs-bg-muted)) !important;
+  color: var(--gs-link);
+  font-weight: 650;
+}
+.sheet-hit--drag-source .sheet-icon-wrap {
+  color: var(--gs-link);
+  opacity: 1;
+}
+
 .tree-list {
   list-style: none;
   margin: 0;
