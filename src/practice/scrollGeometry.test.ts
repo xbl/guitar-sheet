@@ -34,4 +34,15 @@ describe("applyScrollDelta", () => {
     expect(r.nextScrollTop).toBe(400)
     expect(r.reachedBottom).toBe(true)
   })
+
+  it("does not treat non-scrollable content as bottom", () => {
+    const r = applyScrollDelta({
+      scrollTop: 0,
+      scrollHeight: 400,
+      clientHeight: 400,
+      deltaY: 10,
+    })
+    expect(r.nextScrollTop).toBe(0)
+    expect(r.reachedBottom).toBe(false)
+  })
 })

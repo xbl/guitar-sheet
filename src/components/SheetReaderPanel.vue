@@ -16,6 +16,7 @@ import * as pdfjsLib from "pdfjs-dist"
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url"
 import type { SheetMeta } from "../types/sheet"
 import ChordSheetRenderer from "./chords/ChordSheetRenderer.vue"
+import PracticeToolbar from "./practice/PracticeToolbar.vue"
 import ReaderChordSettingsPanel from "./ReaderChordSettingsPanel.vue"
 import {
   convertAsciiChordSheetToChordPro,
@@ -644,22 +645,22 @@ onUnmounted(() => {
       </details>
     </header>
 
-    <div v-if="meta" class="practice-strip">
-      <PracticeToolbar
-        :is-playing="practicePlaying"
-        :bpm="practiceBpm"
-        :scroll-level="practiceScrollLevel"
-        :metronome-muted="practiceMetronomeMuted"
-        :audio-warning="practiceAudioWarning"
-        :disabled="editingText"
-        @toggle-play="onPracticeTogglePlay"
-        @update:bpm="setPracticeBpm"
-        @update:scroll-level="setPracticeScrollLevel"
-        @update:metronome-muted="setPracticeMetronomeMuted"
-      />
-    </div>
-
     <div ref="readerBodyRef" class="reader-body">
+      <div v-if="meta" class="practice-strip">
+        <PracticeToolbar
+          :is-playing="practicePlaying"
+          :bpm="practiceBpm"
+          :scroll-level="practiceScrollLevel"
+          :metronome-muted="practiceMetronomeMuted"
+          :audio-warning="practiceAudioWarning"
+          :disabled="editingText"
+          @toggle-play="onPracticeTogglePlay"
+          @update:bpm="setPracticeBpm"
+          @update:scroll-level="setPracticeScrollLevel"
+          @update:metronome-muted="setPracticeMetronomeMuted"
+        />
+      </div>
+
       <p v-if="error" class="err">{{ error }}</p>
 
       <div v-else-if="!sheetId" class="empty">
@@ -875,9 +876,13 @@ onUnmounted(() => {
 }
 .practice-strip {
   flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  z-index: 2;
   padding: 0.5rem 0.75rem;
   border-bottom: 1px solid var(--gs-border);
   background: var(--gs-bg-muted);
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--gs-border) 40%, transparent);
 }
 .reader-body {
   flex: 1;
